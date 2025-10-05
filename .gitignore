@@ -1,20 +1,55 @@
+# ----------------------------
 # Archivos de configuración con datos reales
+# ----------------------------
 Origen.cfg
 Destino.cfg
 configSMTP.xml
 MapeosUNC.json
 
+# ----------------------------
 # Logs
+# ----------------------------
 Logs/
 *.log
 
-# Superados
+# ----------------------------
+# Carpetas y archivos superados
+# ----------------------------
 Superado/
-*.*
 
+# ----------------------------
 # Backups
+# ----------------------------
 BCKP/
 
+# ----------------------------
+# Archivos temporales y editores
+# ----------------------------
+*.tmp
+*.bak
+*.swp
+*.ps1~
+
+# Carpetas de editores
+.vscode/
+.idea/
+
+# Archivos de Visual Studio
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# ----------------------------
 # Windows
+# ----------------------------
 Thumbs.db
 desktop.ini
+
+# ----------------------------
+# Binarios y compilación
+# ----------------------------
+*.exe
+*.dll
+*.pdb
+*.obj
