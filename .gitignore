@@ -1,0 +1,20 @@
+# Archivos de configuración con datos reales
+Origen.cfg
+Destino.cfg
+configSMTP.xml
+MapeosUNC.json
+
+# Logs
+Logs/
+*.log
+
+# Superados
+Superado/
+*.*
+
+# Backups
+BCKP/
+
+# Windows
+Thumbs.db
+desktop.ini

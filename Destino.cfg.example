@@ -1,0 +1,12 @@
+﻿# Configuración de carpeta de destino para backup
+# Líneas que comienzan con # son comentarios y se ignoran
+# IMPORTANTE: Solo se permite UNA línea de destino válida
+
+# Por defecto usa C:\BCKP si este archivo no existe o es inválido
+# Descomenta y modifica la línea siguiente para cambiar el destino:
+#D:\Respaldos
+
+# Otros ejemplos (solo descomenta UNO):
+#C:\MisBackups
+#\\servidor\compartido\backups
+#\\NAS\Respaldos

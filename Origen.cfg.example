@@ -1,0 +1,17 @@
+﻿# Configuración de carpetas de origen para backup
+# Líneas que comienzan con # son comentarios y se ignoran
+
+# Carpetas estándar del usuario actual
+%USERPROFILE%\Desktop
+%USERPROFILE%\Downloads
+%USERPROFILE%\Documents
+%USERPROFILE%\Pictures
+%USERPROFILE%\Videos
+
+# Perfil de Google Chrome
+%LOCALAPPDATA%\Google\Chrome
+
+# Ejemplos de carpetas específicas (descomentar y modificar según necesites)
+#C:\Datos
+#D:\Proyectos
+#\\servidor\compartido
