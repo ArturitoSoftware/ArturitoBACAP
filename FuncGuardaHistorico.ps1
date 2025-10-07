@@ -9,7 +9,7 @@
         Write-Message "Directorio base: $DestinoFinal" "Cyan"
         
         # Patrón para validar nombres de carpetas de backup histórico
-        $patronBackup = "^BCKPHist\d{14}$"
+        $patronBackup = "^BCKPHist\d{8}_\d{6}$"
         
         # 1) Verificar y eliminar carpetas que no cumplan con el patrón de nombre
         Write-Message "Verificando carpetas existentes en: $DestinoFinal" "Yellow"
@@ -33,7 +33,7 @@
         Write-Message "Cantidad de históricos solicitados: $Historico" "Cyan"
         
         # Generar nombre de nueva carpeta con fecha y hora actual
-        $fechaHoraActual = Get-Date -Format "yyyyMMddHHmmss"
+        $fechaHoraActual = Get-Date -Format "yyyyMMdd_HHmmss"
         $nombreNuevaCarpeta = "BCKPHist$fechaHoraActual"
         $rutaNuevaCarpeta = Join-Path -Path $DestinoFinal -ChildPath $nombreNuevaCarpeta
         

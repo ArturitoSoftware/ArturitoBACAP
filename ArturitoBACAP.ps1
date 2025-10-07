@@ -304,7 +304,8 @@ $opcionesBase = @(
     "/W:2",
     "/NFL", "/NDL",
     "/NP",
-    "/J"
+    "/J",
+    "/IT"
 )
 
 if ($Rapidito) {
