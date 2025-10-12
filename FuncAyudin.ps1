@@ -83,12 +83,14 @@ Write-Host @"
                    Las líneas que comienzan con # son ignoradas (comentarios)
                    Soporta rutas locales (C:\) y de red (\\servidor\carpeta)
                    Conversión automática a UNC cuando es necesario
+                   Se crea automáticamente con ejemplos si no existe
                    
 - Destino.cfg      Carpeta destino del backup (UNA SOLA LÍNEA)
                    Las líneas que comienzan con # son ignoradas (comentarios)
                    Si no existe o es inválido: usa C:\BCKP por defecto
                    Soporta rutas locales (D:\Backups) y de red (\\NAS\Respaldos)
                    IMPORTANTE: Solo se permite una línea de destino válida
+                   Se crea automáticamente con ejemplos si no existe
                    
 - configSMTP.xml   Configuración SMTP completa encriptada (usar -AjustaEmail)
                    Incluye: servidor, puerto, SSL, credenciales, remitente, destinatario
@@ -101,10 +103,18 @@ Write-Host @"
 Write-Host @"
 - BCKP_Resumen_YYYYMMDD_HHMMSS.log    Resumen ejecutivo consolidado
                                       Incluye: estadísticas, errores, conversiones UNC
+                                      📧 ADJUNTO AL EMAIL: Siempre se envía
                                       
 - BCKP_Detalle_YYYYMMDD_HHMMSS.log    Logs detallados de todas las operaciones
                                       Consolidado de todos los logs individuales
                                       Incluye: robocopy, verificación, limpieza
+                                      📧 ADJUNTO AL EMAIL: Siempre se envía
+                                      
+💡 AMBOS LOGS SE ENVÍAN POR EMAIL: El reporte incluye tanto el resumen ejecutivo
+   como el log completo detallado para máxima trazabilidad.
+   
+💾 COMPRESIÓN AUTOMÁTICA: Logs mayores a 10MB se comprimen automáticamente
+   antes de enviar por email (reduce ancho de banda y espacio).
 "@ -ForegroundColor Green
 Write-Host @"
 `nFUNCIONALIDADES AUTOMÁTICAS:
@@ -120,6 +130,8 @@ Write-Host @"
 ✅ Consolidación automática de logs individuales en un único archivo detallado
 ✅ Rotación automática de backups históricos (con -Historico N)
 ✅ Permisos de seguridad automáticos en archivos de configuración
+✅ Creación automática de archivos de configuración con ejemplos (Origen.cfg, Destino.cfg)
+✅ Envío automático de múltiples adjuntos por email (resumen + detalle completo)
 "@ -ForegroundColor Green
 Write-Host @"
 `nCONFIGURACIÓN DEL DESTINO (Destino.cfg):
@@ -157,19 +169,48 @@ El archivo Destino.cfg permite configurar la carpeta de destino del backup:
    ftp://servidor/backup       ✗ Protocolos no soportados
 "@ -ForegroundColor Green
 Write-Host @"
+`n⚠️  SCRIPTS NO FIRMADOS - DESBLOQUEO REQUERIDO:
+==============================================
+"@ -ForegroundColor Yellow
+Write-Host @"
+ArturitoBACAP y sus funciones auxiliares NO están firmados digitalmente.
+Antes de ejecutar por primera vez, debes desbloquear todos los archivos.
+
+🔓 COMANDO OBLIGATORIO (ejecutar como Administrador):
+   Get-ChildItem -Path . -Filter *.ps1 | Unblock-File
+
+Este comando desbloquea todos los scripts .ps1 en la carpeta actual,
+permitiendo su ejecución sin restricciones de seguridad.
+
+✅ VERIFICAR DESBLOQUEO:
+   Get-ChildItem -Path . -Filter *.ps1 | Get-Item -Stream Zone.Identifier -ErrorAction SilentlyContinue
+   
+   Si no devuelve resultados → scripts correctamente desbloqueados ✓
+
+⚠️  ALTERNATIVA (NO RECOMENDADA para uso permanente):
+   Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process
+   
+   Esta opción solo afecta la sesión actual de PowerShell.
+"@ -ForegroundColor Red
+Write-Host @"
 `nPRIMER USO - GUÍA RÁPIDA:
 =========================
 "@ -ForegroundColor Cyan
 Write-Host @"
+0️⃣  Desbloquear scripts (OBLIGATORIO - una sola vez):
+   Get-ChildItem -Path . -Filter *.ps1 | Unblock-File
+   
 1️⃣  Configurar email (OBLIGATORIO si no usas -NoEmail):
    .\ArturitoBACAP.ps1 -AjustaEmail
    
 2️⃣  (OPCIONAL) Editar Destino.cfg para cambiar destino del backup:
    # Por defecto usa C:\BCKP
+   # Si no existe, se crea automáticamente con ejemplos
    # Descomenta y modifica si necesitas otro destino
    D:\Respaldos
    
 3️⃣  Editar Origen.cfg con las carpetas a respaldar:
+   # Si no existe, se crea automáticamente con ejemplos
    # Descomenta y modifica las líneas de ejemplo
    C:\Users\TuUsuario\Documents
    C:\Users\TuUsuario\Desktop
@@ -186,6 +227,9 @@ Write-Host @"
 ==================
 "@ -ForegroundColor Cyan
 Write-Host @"
+⚠️  SCRIPTS NO FIRMADOS: Debes desbloquear los archivos .ps1 antes de ejecutar.
+   Comando: Get-ChildItem -Path . -Filter *.ps1 | Unblock-File
+
 ⚠️  Si intentas ejecutar sin -NoEmail y sin configuración de email,
    el script se detendrá y te pedirá ejecutar -AjustaEmail primero.
    
@@ -195,11 +239,17 @@ Write-Host @"
 ⚠️  El modo silencioso (sin -Debug) es ideal para Task Scheduler.
    Solo genera logs, sin salidas en pantalla.
    
-⚠️  Si Destino.cfg no existe o es inválido, el script usa C:\BCKP
-   automáticamente como destino por defecto (con fallback inteligente).
+⚠️  Si Destino.cfg no existe, se crea automáticamente con ejemplos
+   y el script usa C:\BCKP como destino por defecto.
+   
+⚠️  Si Origen.cfg no existe, se crea automáticamente con ejemplos
+   y el script se detiene para que edites las carpetas a respaldar.
    
 ⚠️  El destino configurado en Destino.cfg se valida completamente antes
    del backup. Si falla, el script intenta con C:\BCKP automáticamente.
+   
+⚠️  Los emails incluyen AMBOS logs adjuntos: resumen ejecutivo + detalle completo
+   (logs >10MB se comprimen automáticamente antes de enviar).
 "@ -ForegroundColor Red
 Write-Host @"
 `n=====================================================

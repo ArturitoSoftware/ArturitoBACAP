@@ -210,7 +210,7 @@ function Send-BackupEmail {
     Cuerpo del email
     
     .PARAMETER Attachment
-    Ruta al archivo adjunto (opcional)
+    Ruta(s) al(los) archivo(s) adjunto(s) - puede ser string o array
     
     .PARAMETER EsPrueba
     Indica si es un email de prueba (no requiere adjunto)
@@ -222,7 +222,7 @@ function Send-BackupEmail {
         [string]$Subject,
         [Parameter(Mandatory=$true)]
         [string]$Body,
-        [string]$Attachment = $null,
+        $Attachment = $null,  # Acepta string o array
         [switch]$EsPrueba = $false
     )
     
@@ -236,19 +236,42 @@ function Send-BackupEmail {
     
     $config = $validacion.Config
     
-    # Comprimir adjunto si es muy grande (>10MB)
-    if ($Attachment -and (Test-Path $Attachment)) {
-        $tamano = (Get-Item $Attachment).Length
-        if ($tamano -gt 10MB) {
-            $archivoComprimido = "$Attachment.zip"
-            try {
-                Compress-Archive -Path $Attachment -DestinationPath $archivoComprimido -Force
-                $Attachment = $archivoComprimido
-                Write-Host "📦 Log comprimido para envío (tamaño original: $([math]::Round($tamano/1MB, 2)) MB)" -ForegroundColor Yellow
-            } catch {
-                Write-Host "⚠️  No se pudo comprimir el adjunto: $($_.Exception.Message)" -ForegroundColor Yellow
-            }
+    # Normalizar adjuntos a array
+    $adjuntosFinales = @()
+    if ($Attachment) {
+        if ($Attachment -is [array]) {
+            $adjuntosFinales = $Attachment | Where-Object { Test-Path $_ }
+        } elseif ($Attachment -is [string] -and (Test-Path $Attachment)) {
+            $adjuntosFinales = @($Attachment)
         }
+    }
+    
+    # Comprimir adjuntos si son muy grandes (>10MB cada uno)
+    $adjuntosComprimidos = @()
+    $totalSize = 0
+    
+    foreach ($adjunto in $adjuntosFinales) {
+        $tamano = (Get-Item $adjunto).Length
+        $totalSize += $tamano
+        
+        if ($tamano -gt 10MB) {
+            $archivoComprimido = "$adjunto.zip"
+            try {
+                Compress-Archive -Path $adjunto -DestinationPath $archivoComprimido -Force
+                $adjuntosComprimidos += $archivoComprimido
+                $tamanoComprimido = (Get-Item $archivoComprimido).Length
+                Write-Host "📦 $(Split-Path $adjunto -Leaf) comprimido: $([math]::Round($tamano/1MB, 2)) MB → $([math]::Round($tamanoComprimido/1MB, 2)) MB" -ForegroundColor Yellow
+            } catch {
+                Write-Host "⚠️  No se pudo comprimir $(Split-Path $adjunto -Leaf): $($_.Exception.Message)" -ForegroundColor Yellow
+                $adjuntosComprimidos += $adjunto
+            }
+        } else {
+            $adjuntosComprimidos += $adjunto
+        }
+    }
+    
+    if ($adjuntosComprimidos.Count -gt 0) {
+        Write-Host "📎 Adjuntando $($adjuntosComprimidos.Count) archivo(s) (Total: $([math]::Round($totalSize/1MB, 2)) MB)" -ForegroundColor Cyan
     }
     
     try {
@@ -269,9 +292,9 @@ function Send-BackupEmail {
             UseSsl = $config.UseSsl
         }
         
-        # Agregar adjunto si existe y no es prueba
-        if ($Attachment -and (Test-Path $Attachment) -and !$EsPrueba) {
-            $mailParams.Attachments = $Attachment
+        # Agregar adjuntos si existen y no es prueba
+        if ($adjuntosComprimidos.Count -gt 0 -and !$EsPrueba) {
+            $mailParams.Attachments = $adjuntosComprimidos
         }
         
         # Enviar email con timeout - crear Encoding dentro del job
@@ -294,14 +317,24 @@ function Send-BackupEmail {
             Stop-Job $emailJob
             Remove-Job $emailJob
             Write-Host "⏱️  Timeout al enviar email (60 segundos)" -ForegroundColor Yellow
+            
+            # Limpiar archivos comprimidos temporales
+            foreach ($adjunto in $adjuntosComprimidos) {
+                if ($adjunto.EndsWith('.zip') -and !$EsPrueba) {
+                    Remove-Item $adjunto -Force -ErrorAction SilentlyContinue
+                }
+            }
+            
             return $false
         } elseif ($emailJob.State -eq 'Completed') {
             Receive-Job $emailJob | Out-Null
             Remove-Job $emailJob
             
-            # Limpiar archivo comprimido temporal si se creó
-            if ($Attachment -and $Attachment.EndsWith('.zip') -and !$EsPrueba) {
-                Remove-Item $Attachment -Force -ErrorAction SilentlyContinue
+            # Limpiar archivos comprimidos temporales si se crearon
+            foreach ($adjunto in $adjuntosComprimidos) {
+                if ($adjunto.EndsWith('.zip') -and !$EsPrueba) {
+                    Remove-Item $adjunto -Force -ErrorAction SilentlyContinue
+                }
             }
             
             return $true
@@ -309,11 +342,27 @@ function Send-BackupEmail {
             $emailError = Receive-Job $emailJob
             Remove-Job $emailJob
             Write-Host "❌ Error al enviar email: $emailError" -ForegroundColor Red
+            
+            # Limpiar archivos comprimidos temporales
+            foreach ($adjunto in $adjuntosComprimidos) {
+                if ($adjunto.EndsWith('.zip') -and !$EsPrueba) {
+                    Remove-Item $adjunto -Force -ErrorAction SilentlyContinue
+                }
+            }
+            
             return $false
         }
         
     } catch {
         Write-Host "❌ Error al enviar email: $($_.Exception.Message)" -ForegroundColor Red
+        
+        # Limpiar archivos comprimidos temporales en caso de error
+        foreach ($adjunto in $adjuntosComprimidos) {
+            if ($adjunto.EndsWith('.zip') -and !$EsPrueba) {
+                Remove-Item $adjunto -Force -ErrorAction SilentlyContinue
+            }
+        }
+        
         return $false
     }
 }

@@ -703,7 +703,7 @@ Log completo adjunto.
         -ConfigFile $configEmailFile `
         -Subject $subject `
         -Body $bodyOptimizado `
-        -Attachment $logResumen
+        -Attachment @($logResumen, $logDetalle)  # ✅ Array con ambos logs
     
     if ($emailEnviado) {
         Write-Message "✅ Email enviado exitosamente" "Green"
