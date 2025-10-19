@@ -1,7 +1,6 @@
 ﻿# ================================
 # Función de verificación por resincronización
 # ================================
-
 function Test-BackupIntegrity {
     param(
         $CarpetasValidas,
@@ -15,8 +14,9 @@ function Test-BackupIntegrity {
     $erroresVerificacion = @()
     
     # Opciones para verificación rápida (solo comparar, no copiar)
+    # Si NuncaBorra está activo, usa /E en lugar de /MIR para no detectar extras como error
     $opcionesVerificacion = @(
-        "/MIR",              # Espejo para comparar estructura
+        $(if ($NuncaBorra) { "/E" } else { "/MIR" }),  # /E no considera extras como error
         "/L",                # Solo listar diferencias, no copiar
         "/MT:8",             # Menos hilos para verificación
         "/R:1", "/W:1",      # Reintentos mínimos
@@ -39,17 +39,32 @@ function Test-BackupIntegrity {
             $resultado = cmd /c $comando
             $exitCode = $LASTEXITCODE
             
-            if ($exitCode -eq 0) {
-                Write-Message "      ✅ Verificación exitosa" "Green" # ERA: "      ✅ ${nombreCarpeta}: Verificación exitosa" "Green"
-            } elseif ($exitCode -ge 1 -and $exitCode -le 3) {
-                Write-Message "      Se encontraron diferencias" "Yellow" # ERA: "      ⚠️ ${nombreCarpeta}: Se encontraron diferencias" "Yellow"
-                $erroresVerificacion += $nombreCarpeta
+            # Interpretación de códigos según modo
+            if ($NuncaBorra) {
+                # En modo NuncaBorra, código 2 (extras) NO es error
+                if ($exitCode -eq 0 -or $exitCode -eq 2) {
+                    Write-Message "      ✅ Verificación exitosa" "Green"
+                } elseif ($exitCode -eq 1 -or $exitCode -eq 3) {
+                    Write-Message "      ⚠️ Se encontraron diferencias (archivos faltantes o diferentes)" "Yellow"
+                    $erroresVerificacion += $nombreCarpeta
+                } else {
+                    Write-Message "      ❌ Error en verificación (código $exitCode)" "Red"
+                    $erroresVerificacion += $nombreCarpeta
+                }
             } else {
-                Write-Message "      ❌ Error en verificación (código $exitCode)" "Red" # ERA: "      ❌ ${nombreCarpeta}: Error en verificación (código $exitCode)" "Red"
-                $erroresVerificacion += $nombreCarpeta
+                # En modo normal, cualquier diferencia es advertencia
+                if ($exitCode -eq 0) {
+                    Write-Message "      ✅ Verificación exitosa" "Green"
+                } elseif ($exitCode -ge 1 -and $exitCode -le 3) {
+                    Write-Message "      ⚠️ Se encontraron diferencias" "Yellow"
+                    $erroresVerificacion += $nombreCarpeta
+                } else {
+                    Write-Message "      ❌ Error en verificación (código $exitCode)" "Red"
+                    $erroresVerificacion += $nombreCarpeta
+                }
             }
         } catch {
-            Write-Message "❌ ${nombreCarpeta}: Error al verificar - $($_.Exception.Message)" "Red"
+            Write-Message "      ❌ Error al verificar - $($_.Exception.Message)" "Red"
             $erroresVerificacion += $nombreCarpeta
         }
     }

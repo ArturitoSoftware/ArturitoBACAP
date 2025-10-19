@@ -10,6 +10,8 @@
     - Validación completa de rutas y conversión automática UNC
     - Sistema de email modular mediante dot-sourcing
     - Lectura de destino desde archivo Destino.cfg
+    - Modo NuncaBorra para proteger archivos en destino
+    - Sistema de perfiles para múltiples configuraciones
 #>
 
 param(
@@ -22,7 +24,9 @@ param(
     [switch]$Verifica = $false,
     [switch]$Ayuda = $false,
     [switch]$CierroTodo = $false,
-    [int]$Historico = 0
+    [int]$Historico = 0,
+    [switch]$NuncaBorra = $false,
+    [int]$Perfil = 0
 )
 
 # ================================
@@ -49,9 +53,10 @@ function Write-Message {
     . (Join-Path $scriptDir "FuncLimpiaLogs.ps1")
     . (Join-Path $scriptDir "FuncGuardaHistorico.ps1")
     . (Join-Path $scriptDir "FuncEnviaEmail.ps1")
+    . (Join-Path $scriptDir "FuncManejaPerfiles.ps1")
 # -------------
 
-$validParams = @('NoEmail', 'AjustaEmail', 'Simultaneas', 'Rapidito', 'Debug', 'Verifica', 'Apagar', 'Ayuda', 'CierroTodo', 'Historico')
+$validParams = @('NoEmail', 'AjustaEmail', 'Simultaneas', 'Rapidito', 'Debug', 'Verifica', 'Apagar', 'Ayuda', 'CierroTodo', 'Historico', 'NuncaBorra', 'Perfil')
 
 $allArgs = $args + $MyInvocation.BoundParameters.Keys
 
@@ -90,6 +95,13 @@ if ($AjustaEmail) {
 if ($Simultaneas -lt 1 -or $Simultaneas -gt 32) {
     Write-Host "❌ -Simultaneas debe estar entre 1 y 32" -ForegroundColor Red
     Write-Host "💡 Valor actual: $Simultaneas" -ForegroundColor Yellow
+    exit 1
+}
+
+if ($Perfil -lt 0 -or $Perfil -gt 99) {
+    Write-Host "❌ -Perfil debe estar entre 0 y 99" -ForegroundColor Red
+    Write-Host "💡 0 = sin perfil (comportamiento estándar)" -ForegroundColor Yellow
+    Write-Host "💡 1-99 = usar perfil específico" -ForegroundColor Yellow
     exit 1
 }
 
@@ -133,6 +145,34 @@ if ($CierroTodo) {
 }
 
 # ================================
+# 2.5. PROCESAMIENTO DE PERFILES
+# ================================
+Write-Message "`n🔧 Procesando configuración de archivos..." "Cyan"
+
+$resultadoPerfiles = Invoke-ProcesoPerfiles -ArchivoOrigen $carpetasFile -ArchivoDestino $destinoFile -Perfil $Perfil -ScriptDir $scriptDir
+
+if (!$resultadoPerfiles.Success) {
+    Write-Host "`n❌ ERROR AL PROCESAR ARCHIVOS DE CONFIGURACIÓN:" -ForegroundColor Red
+    $resultadoPerfiles.Errores | ForEach-Object { Write-Host "   • $_" -ForegroundColor Red }
+    
+    if ($Perfil -gt 0) {
+        Write-Host "`n💡 Asegúrate de que existan líneas con formato: ${Perfil}:[ruta]" -ForegroundColor Yellow
+        Write-Host "   Ejemplo: ${Perfil}:C:\MiCarpeta" -ForegroundColor Cyan
+    }
+    exit 1
+}
+
+if ($Perfil -gt 0) {
+    Write-Message "✅ Perfil $Perfil activado - $($resultadoPerfiles.LineasOrigen) carpetas origen, $($resultadoPerfiles.LineasDestino) destino" "Green"
+} else {
+    Write-Message "✅ Modo estándar (sin perfil) - $($resultadoPerfiles.LineasOrigen) carpetas origen, $($resultadoPerfiles.LineasDestino) destino" "Green"
+}
+
+# Usar archivos temporales procesados
+$carpetasFile = $resultadoPerfiles.OrigenTmp
+$destinoFile = $resultadoPerfiles.DestinoTmp
+
+# ================================
 # Cargar destino desde archivo o usar default
 # ================================
 $destinoDefault = "C:\BCKP"
@@ -144,9 +184,20 @@ if (Test-Path $destinoFile) {
     $lineasDestino = @(Get-Content $destinoFile | Where-Object { $_.Trim() -ne "" -and !$_.StartsWith("#") })
     
     if ($lineasDestino.Count -eq 0) {
+        if ($Perfil -gt 0) {
+            Write-Host "`n❌ ERROR: Perfil $Perfil requiere un destino válido en Destino.cfg" -ForegroundColor Red
+            Write-Host "💡 No se puede usar destino por defecto con perfiles" -ForegroundColor Yellow
+            Write-Host "💡 Agrega una línea: ${Perfil}:[ruta_destino]" -ForegroundColor Cyan
+            exit 1
+        }
         Write-Message "⚠️  Destino.cfg está vacío o solo tiene comentarios" "Yellow"
         Write-Message "   Usando destino por defecto: $destinoDefault" "Yellow"
     } elseif ($lineasDestino.Count -gt 1) {
+        if ($Perfil -gt 0) {
+            Write-Host "`n❌ ERROR: Perfil $Perfil tiene más de una línea de destino válida" -ForegroundColor Red
+            Write-Host "💡 Solo se permite una ruta de destino por perfil" -ForegroundColor Yellow
+            exit 1
+        }
         Write-Message "⚠️  Destino.cfg contiene más de una línea válida" "Yellow"
         Write-Message "   Solo se permite una ruta de destino" "Yellow"
         Write-Message "   Usando destino por defecto: $destinoDefault" "Yellow"
@@ -157,6 +208,11 @@ if (Test-Path $destinoFile) {
         Write-Message "📍 Destino configurado: $destinoConfig" "Cyan"
         
         if ([string]::IsNullOrWhiteSpace($destinoConfig)) {
+            if ($Perfil -gt 0) {
+                Write-Host "`n❌ ERROR: Perfil $Perfil requiere un destino válido en Destino.cfg" -ForegroundColor Red
+                Write-Host "💡 La ruta de destino está vacía" -ForegroundColor Yellow
+                exit 1
+            }
             Write-Message "⚠️  La ruta en Destino.cfg está vacía" "Yellow"
             Write-Message "   Usando destino por defecto: $destinoDefault" "Yellow"
         } else {
@@ -166,6 +222,12 @@ if (Test-Path $destinoFile) {
         }
     }
 } else {
+    if ($Perfil -gt 0) {
+        Write-Host "`n❌ ERROR: Perfil $Perfil requiere archivo Destino.cfg con destino válido" -ForegroundColor Red
+        Write-Host "💡 No se puede usar destino por defecto con perfiles" -ForegroundColor Yellow
+        Write-Host "💡 Crea Destino.cfg y agrega: ${Perfil}:[ruta_destino]" -ForegroundColor Cyan
+        exit 1
+    }
     Write-Message "`n📂 Archivo Destino.cfg no encontrado" "Yellow"
     Write-Message "   Usando destino por defecto: $destinoDefault" "Cyan"
     
@@ -184,6 +246,10 @@ if (Test-Path $destinoFile) {
 }
 
 if (!$destinoConfigValido) {
+    if ($Perfil -gt 0) {
+        Write-Host "`n❌ ERROR: No se puede continuar sin destino válido para Perfil $Perfil" -ForegroundColor Red
+        exit 1
+    }
     $destino = $destinoDefault
 }
 
@@ -233,6 +299,19 @@ if (!(Test-Path $logDir)) {
 $validacionCompleta = Invoke-PathValidation -CarpetasOrigen $carpetasOrigen -Destino $destino
 
 if (!$validacionCompleta.DestinoValido) {
+    if ($Perfil -gt 0) {
+        # Con perfil NO se permite fallback a destino por defecto
+        $errorMsg = "❌ DESTINO INVÁLIDO PARA PERFIL ${Perfil}: $($validacionCompleta.ErrorDestino)"
+        Write-Message $errorMsg "Red"
+        Write-Host "💡 Los perfiles requieren destinos válidos específicos" -ForegroundColor Yellow
+        Write-Host "💡 No se puede usar destino por defecto (C:\BCKP) con perfiles" -ForegroundColor Yellow
+        if (!$Debug) {
+            Add-Content -Path (Join-Path $logDir "Error_$(Get-Date -Format 'yyyyMMdd_HHmmss').log") -Value "ERROR: $errorMsg"
+        }
+        exit 1
+    }
+    
+    # Sin perfil, intentar con destino por defecto
     if ($destinoConfigValido -and $destino -ne $destinoDefault) {
         Write-Message "`n⚠️  Destino configurado '$destino' no es válido: $($validacionCompleta.ErrorDestino)" "Yellow"
         Write-Message "🔄 Intentando con destino por defecto: $destinoDefault" "Cyan"
@@ -298,7 +377,7 @@ Write-Message "🖥️  CPU: $numCores cores lógicos detectados" "Cyan"
 Write-Message "⚡ ArturitoBacap usará $threadsOptimos threads" "Green"
 
 $opcionesBase = @(
-    "/MIR",
+    $(if ($NuncaBorra) { "/E" } else { "/MIR" }),
     "/MT:$threadsOptimos",
     "/R:3",
     "/W:2",
@@ -469,10 +548,28 @@ function Remove-ObsoleteFolders {
 # 12. Ejecutar backup
 # ================================
 Write-Message "`n⚡ MODO $(if($Rapidito){'ULTRA-RÁPIDO'}else{'OPTIMIZADO'}) ACTIVO" "Magenta"
+
+if ($NuncaBorra) {
+    Write-Message "🛡️  MODO NUNCA-BORRA ACTIVO: No se eliminarán carpetas ni archivos obsoletos" "Yellow"
+}
+
+if ($Perfil -gt 0) {
+    Write-Message "🎯 PERFIL $Perfil ACTIVO" "Cyan"
+}
+
 Write-Message "🖥️  CPU: $numCores cores lógicos detectados" "Cyan"
 Write-Message "⚡ ArturitoBacap usará $threadsOptimos threads" "Green"
 
-$resultadoLimpieza = Remove-ObsoleteFolders
+$resultadoLimpieza = if ($NuncaBorra) {
+    Write-Message "🛡️  Omitiendo limpieza de carpetas obsoletas (Modo NuncaBorra)" "Yellow"
+    @{
+        CarpetasObsoletas = @()
+        CarpetasEliminadas = @()
+        LogPath = $null
+    }
+} else {
+    Remove-ObsoleteFolders
+}
 $resultadoBackup = Start-ParallelBackup
 
 # ================================
@@ -481,6 +578,9 @@ $resultadoBackup = Start-ParallelBackup
 $resultadoVerificacion = $null
 if ($Verifica) {
     Write-Message "`n🔍 VERIFICACIÓN DE INTEGRIDAD DEL BACKUP ACTIVA" "Magenta"
+    if ($NuncaBorra) {
+        Write-Message "🛡️  Verificación en modo NuncaBorra (solo verifica que origen esté en destino)" "Yellow"
+    }
     $resultadoVerificacion = Test-BackupIntegrity -CarpetasValidas $carpetasValidas -Destino $DestinoFinal -LogDir $logDir -Timestamp $timestamp
     
     if ($resultadoVerificacion.EsExitosa) {
@@ -490,7 +590,6 @@ if ($Verifica) {
         Write-Message "    Errores en: $($resultadoVerificacion.Errores -join ', ')" "Red"
     }
 }
-
 # ================================
 # 14. Consolidar logs
 # ================================
@@ -503,7 +602,9 @@ $resumenCompleto = @"
 === BACKUP RESUMEN - $($resultadoBackup.Inicio.ToString("dd/MM/yyyy HH:mm:ss")) ===
 ============================================
 
+Perfil: $(if($Perfil -gt 0){"$Perfil"}else{"Estándar (sin perfil)"})
 Modo: $(if($Rapidito){'Ultra-rápido'}else{'Optimizado'})
+$(if($NuncaBorra){'🛡️  Modo NuncaBorra: ACTIVO (sin borrado de obsoletos)'})
 Jobs simultáneos: $Simultaneas
 CPU: $numCores cores lógicos detectados
 ArturitoBacap usará: $threadsOptimos threads
@@ -523,7 +624,7 @@ Conversiones UNC: $($validacionCompleta.ConversionesUNC.Count)
 Destino creado: $(if($validacionCompleta.DestinoCreado){'SÍ'}else{'NO'})
 
 === RESULTADOS BACKUP ===
-Carpetas eliminadas: $($resultadoLimpieza.CarpetasEliminadas.Count)
+Carpetas eliminadas: $(if($NuncaBorra){'N/A (Modo NuncaBorra)'}else{$resultadoLimpieza.CarpetasEliminadas.Count})
 Errores backup: $($resultadoBackup.Errores.Count)
 $(if($Verifica){"Errores verificación: $($resultadoVerificacion.Errores.Count)"})
 $(if($Verifica){"Verificación: $(if($resultadoVerificacion.EsExitosa){'EXITOSA'}else{'CON ERRORES'})"})
@@ -536,6 +637,7 @@ $(if($validacionCompleta.CarpetasInvalidas.Count -gt 0){"❌ CARPETAS INVÁLIDAS
 $(if($validacionCompleta.CarpetasInvalidas.Count -gt 0){$($validacionCompleta.ErroresOrigen | ForEach-Object {"   $_"}) -join "`n"})
 
 $(if($resultadoLimpieza.CarpetasEliminadas.Count -gt 0){"🗑️ CARPETAS ELIMINADAS: $($resultadoLimpieza.CarpetasEliminadas -join ', ')"})
+$(if($NuncaBorra){"🛡️  MODO NUNCABORRA: No se eliminaron carpetas ni archivos obsoletos"})
 
 === FIN BACKUP: $($resultadoBackup.Fin.ToString("dd/MM/yyyy HH:mm:ss")) ===
 
@@ -552,7 +654,9 @@ $detalleCompleto = @"
 ==================================================
 
 Timestamp: $timestamp
+Perfil: $(if($Perfil -gt 0){"$Perfil"}else{"Estándar (sin perfil)"})
 Modo: $(if($Rapidito){'Ultra-rápido'}else{'Optimizado'})
+$(if($NuncaBorra){'🛡️  Modo NuncaBorra: ACTIVO'})
 Jobs simultáneos: $Simultaneas
 CPU: $numCores cores lógicos detectados
 ArturitoBacap usará: $threadsOptimos threads
@@ -576,10 +680,13 @@ $(if($validacionCompleta.ErroresOrigen.Count -gt 0){$($validacionCompleta.Errore
 
 "@
 
-if (Test-Path $resultadoLimpieza.LogPath) {
+if (!$NuncaBorra -and (Test-Path $resultadoLimpieza.LogPath)) {
     $detalleCompleto += "`n=== LOG DE BORRADO DE CARPETAS EN DESTINO ===`n"
     $detalleCompleto += Get-Content $resultadoLimpieza.LogPath -Raw
     $detalleCompleto += "`n"
+} elseif ($NuncaBorra) {
+    $detalleCompleto += "`n=== MODO NUNCABORRA ===`n"
+    $detalleCompleto += "No se realizó limpieza de carpetas obsoletas (modo protección activado)`n"
 }
 
 foreach ($jobInfo in $resultadoBackup.Jobs) {
@@ -624,7 +731,7 @@ $detalleCompleto += "`n=== FIN LOG DETALLADO: $(Get-Date -Format "dd/MM/yyyy HH:
 === Soporte Infoquil by WAJ"
 Set-Content -Path $logDetalle -Value $detalleCompleto
 
-if (Test-Path $resultadoLimpieza.LogPath) {
+if (!$NuncaBorra -and (Test-Path $resultadoLimpieza.LogPath)) {
     Remove-Item $resultadoLimpieza.LogPath -Force -ErrorAction SilentlyContinue
 }
 
@@ -649,12 +756,18 @@ if ($Debug) {
 
 Write-Message "  📊 Velocidad promedio backup: $(($carpetasValidas.Count / $resultadoBackup.Duracion.TotalMinutes).ToString('F1')) carpetas/min" "Cyan"
 
+if ($Perfil -gt 0) {
+    Write-Message "  🎯 Perfil usado: $Perfil" "Cyan"
+}
+
 if ($validacionCompleta.ConversionesUNC.Count -gt 0) {
     Write-Message "  🔄 Conversiones UNC realizadas: $($validacionCompleta.ConversionesUNC.Count)" "Cyan"
 }
 
-if ($resultadoLimpieza.CarpetasEliminadas.Count -gt 0) {
+if (!$NuncaBorra -and $resultadoLimpieza.CarpetasEliminadas.Count -gt 0) {
     Write-Message "  🗑️  Carpetas eliminadas: $($resultadoLimpieza.CarpetasEliminadas -join ', ')" "Yellow"
+} elseif ($NuncaBorra) {
+    Write-Message "  🛡️  Modo NuncaBorra: Sin eliminación de obsoletos" "Cyan"
 }
 
 if ($resultadoBackup.Errores.Count -gt 0) {
@@ -672,18 +785,21 @@ if (!$NoEmail) {
     Write-Message "`n📧 Enviando reporte..." "Magenta"
     
     $statusText = if ($tieneErrores) { "CON ERRORES" } else { "EXITOSO" }
-    $subject = "Backup $statusText ⚡ $($duracionTotal.ToString('hh\:mm\:ss')) - $(Get-Date -Format 'dd/MM HH:mm')"
+    $perfilText = if ($Perfil -gt 0) { " [P$Perfil]" } else { "" }
+    $subject = "Backup $statusText$perfilText ⚡ $($duracionTotal.ToString('hh\:mm\:ss')) - $(Get-Date -Format 'dd/MM HH:mm')"
     
     $bodyOptimizado = @"
 🚀 BACKUP $statusText
 
+🎯 Perfil: $(if($Perfil -gt 0){"$Perfil"}else{"Estándar"})
 ⏱️  Duración total: $($duracionTotal.ToString('hh\:mm\:ss'))
     📦 Backup: $($resultadoBackup.Duracion.ToString('hh\:mm\:ss'))
 $(if($Verifica){"    🔍 Verificación: $($resultadoVerificacion.Duracion.ToString('hh\:mm\:ss'))"})
 📂 Carpetas válidas: $($carpetasValidas.Count)
 🔄 Conversiones UNC: $($validacionCompleta.ConversionesUNC.Count)
-🗑️ Eliminadas: $($resultadoLimpieza.CarpetasEliminadas.Count)
+🗑️ Eliminadas: $(if($NuncaBorra){'N/A (Modo NuncaBorra)'}else{$resultadoLimpieza.CarpetasEliminadas.Count})
 🔥 Modo: $(if($Rapidito){'Ultra-rápido'}else{'Optimizado'}) ($Simultaneas jobs)
+$(if($NuncaBorra){'🛡️  Modo NuncaBorra: ACTIVO'})
 🖥️  CPU: $threadsOptimos threads de $numCores cores
 📊 Velocidad backup: $(($carpetasValidas.Count / $resultadoBackup.Duracion.TotalMinutes).ToString('F1')) carpetas/min
 $(if($Verifica){"🔍 Verificación: $(if($resultadoVerificacion.EsExitosa){'✅ EXITOSA'}else{'⚠️ CON ERRORES'})"})
@@ -691,7 +807,8 @@ $(if($Apagar){'🔌 Equipo se apagará automáticamente'}else{'💻 Equipo perma
 
 $(if ($validacionCompleta.ConversionesUNC.Count -gt 0) { "🔄 CONVERSIONES UNC: $($validacionCompleta.ConversionesUNC.Count) realizadas" })
 $(if ($validacionCompleta.CarpetasInvalidas.Count -gt 0) { "❌ CARPETAS INVÁLIDAS: $($validacionCompleta.CarpetasInvalidas.Count)" })
-$(if ($resultadoLimpieza.CarpetasEliminadas.Count -gt 0) { "🗑️ ELIMINADAS: $($resultadoLimpieza.CarpetasEliminadas -join ', ')" })
+$(if (!$NuncaBorra -and $resultadoLimpieza.CarpetasEliminadas.Count -gt 0) { "🗑️ ELIMINADAS: $($resultadoLimpieza.CarpetasEliminadas -join ', ')" })
+$(if ($NuncaBorra) { "🛡️  MODO NUNCABORRA: Sin eliminación de obsoletos" })
 $(if ($resultadoBackup.Errores.Count -gt 0) { "⚠️ ERRORES BACKUP: $($resultadoBackup.Errores -join ', ')" })
 $(if ($Verifica -and !$resultadoVerificacion.EsExitosa) { "⚠️ ERRORES VERIFICACIÓN: $($resultadoVerificacion.Errores -join ', ')" })
 $(if (!$tieneErrores -and $resultadoLimpieza.CarpetasEliminadas.Count -eq 0 -and $validacionCompleta.CarpetasInvalidas.Count -eq 0) { "✅ TODO EXITOSO" } elseif (!$tieneErrores) { "✅ BACKUP EXITOSO" })
@@ -703,7 +820,7 @@ Log completo adjunto.
         -ConfigFile $configEmailFile `
         -Subject $subject `
         -Body $bodyOptimizado `
-        -Attachment @($logResumen, $logDetalle)  # ✅ Array con ambos logs
+        -Attachment @($logResumen, $logDetalle)
     
     if ($emailEnviado) {
         Write-Message "✅ Email enviado exitosamente" "Green"
@@ -719,6 +836,9 @@ Log completo adjunto.
 }
 
 Invoke-LimpiaLogs -logDir $logDir
+
+# Limpiar archivos temporales de perfiles
+Remove-ArchivosTemporales -ScriptDir $scriptDir
 
 # ================================
 # 17. APAGAR EQUIPO
