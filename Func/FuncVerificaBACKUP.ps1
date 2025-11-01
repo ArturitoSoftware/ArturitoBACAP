@@ -1,12 +1,22 @@
 ﻿# ================================
+# FuncVerificaBACKUP.ps1
 # Función de verificación por resincronización
 # ================================
+
 function Test-BackupIntegrity {
+    <#
+    .SYNOPSIS
+    Verifica la integridad del backup comparando origen con destino
+    
+    .DESCRIPTION
+    Usa robocopy en modo listado (/L) para verificar diferencias sin copiar
+    Aplica las mismas exclusiones que el backup principal
+    #>
+    
     param(
         $CarpetasValidas,
         $Destino,
-        $LogDir,
-        $Timestamp
+        $Exclusiones
     )
     
     Write-Message "  🔍 Comenzando la verificación..." "Cyan"
@@ -24,10 +34,16 @@ function Test-BackupIntegrity {
         "/COPY:DT"           # Solo comparar data y timestamps
     )
     
+    # Agregar exclusiones si existen
+    if ($Exclusiones -and $Exclusiones.Count -gt 0) {
+        $opcionesVerificacion += $Exclusiones
+        Write-Message "  🚫 Aplicando $($Exclusiones.Count) exclusión(es) a la verificación" "Yellow"
+    }
+    
     foreach ($origen in $CarpetasValidas) {
         $nombreCarpeta = Split-Path $origen -Leaf
         $destinoFinal = Join-Path $Destino $nombreCarpeta
-        $logVerificacion = Join-Path $LogDir "Verificacion_$($nombreCarpeta)_$Timestamp.log"
+        $logVerificacion = Join-Path $logDir "Verificacion_$($nombreCarpeta)_$timestamp.log"
         
         Write-Message "    🔎 Verificando: $nombreCarpeta" "Yellow"
         

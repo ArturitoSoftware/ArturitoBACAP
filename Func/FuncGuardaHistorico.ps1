@@ -1,5 +1,12 @@
-﻿function GuardaHistorico {
+﻿# ================================
+# Función de gestión de histórico de backups
+# FuncGuardaHistorico.ps1
+# Ubicación: Func\FuncGuardaHistorico.ps1
+# ================================
+
+function GuardaHistorico {
     # No necesita parámetros - usa las variables del script principal via dot sourcing
+    # Variables que usa: $DestinoFinal, $Historico, $Destino
     
     try {
         # Guardar directorio base antes de que $DestinoFinal se modifique
@@ -89,7 +96,7 @@
         
         # Verificación final
         $carpetasFinales = Get-ChildItem -Path $DirectorioBase -Directory | Where-Object { $_.Name -match $patronBackup }
-        Write-Message "Proceso completado. Destino era: $Destino Ahora apunt a: $DestinoFinal" "Green"
+        Write-Message "Proceso completado. Destino era: $Destino Ahora apunta a: $DestinoFinal" "Green"
         Write-Message "Total de carpetas de backup mantenidas: $($carpetasFinales.Count)" "Green"
         
     } catch {

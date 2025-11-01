@@ -1,11 +1,12 @@
 ﻿# ================================
 # Funciones de validación y conversión UNC
 # FuncValidacionUNC.ps1
+# Ubicación: Func\FuncValidacionUNC.ps1
 # ================================
 
-# Archivo de histórico de mapeos
-$scriptDir   = Split-Path -Parent $MyInvocation.MyCommand.Path
-$mapFilePath = Join-Path $scriptDir "MapeosUNC.json"
+# Archivo de histórico de mapeos en carpeta conf
+# Usa $confDir definida en el script principal
+$mapFilePath = Join-Path $confDir "MapeosUNC.json"
 
 function Get-UNCFromHistory {
     param([string]$DriveLetter)
@@ -24,6 +25,11 @@ function Save-UNCToHistory {
         [string]$DriveLetter,
         [string]$UNCPath
     )
+
+    # Asegurar que existe el directorio conf (usa $confDir del script principal)
+    if (!(Test-Path $confDir)) {
+        New-Item -Path $confDir -ItemType Directory -Force | Out-Null
+    }
 
     $mapeos = @{}
     if (Test-Path $mapFilePath) {

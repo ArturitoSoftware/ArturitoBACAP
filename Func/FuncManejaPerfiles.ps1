@@ -1,24 +1,26 @@
-﻿# FuncManejaPerfiles.ps1
+﻿# ================================
 # Función para procesar archivos de configuración con soporte de perfiles
+# FuncManejaPerfiles.ps1
+# Ubicación: Func\FuncManejaPerfiles.ps1
+# ================================
 # Genera archivos temporales filtrados según el perfil seleccionado
-# Uso: Se carga mediante dot-sourcing en ArturitoBACAP.ps1
+# Usa $tempDir del script principal via dot-sourcing
 
 function Invoke-ProcesoPerfiles {
     param(
         [string]$ArchivoOrigen,
         [string]$ArchivoDestino,
-        [int]$Perfil = 0,
-        [string]$ScriptDir
+        [int]$Perfil = 0
     )
     
-    $tmpDir = Join-Path $ScriptDir "Temp"
-    if (!(Test-Path $tmpDir)) {
-        New-Item -Path $tmpDir -ItemType Directory -Force | Out-Null
+    # Usa $tempDir definido en el script principal via dot-sourcing
+    if (!(Test-Path $tempDir)) {
+        New-Item -Path $tempDir -ItemType Directory -Force | Out-Null
     }
     
     $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
-    $origenTmp = Join-Path $tmpDir "Origen_tmp_$timestamp.cfg"
-    $destinoTmp = Join-Path $tmpDir "Destino_tmp_$timestamp.cfg"
+    $origenTmp = Join-Path $tempDir "Origen_tmp_$timestamp.cfg"
+    $destinoTmp = Join-Path $tempDir "Destino_tmp_$timestamp.cfg"
     
     function ProcessFile {
         param($FilePath, $TmpPath, $AllowMultiple = $true)
@@ -127,11 +129,9 @@ function Invoke-ProcesoPerfiles {
 }
 
 function Remove-ArchivosTemporales {
-    param([string]$ScriptDir)
-    
-    $tmpDir = Join-Path $ScriptDir "Temp"
-    if (Test-Path $tmpDir) {
-        Get-ChildItem -Path $tmpDir -Filter "*.cfg" | Where-Object {
+    # Usa $tempDir definido en el script principal via dot-sourcing
+    if (Test-Path $tempDir) {
+        Get-ChildItem -Path $tempDir -Filter "*.cfg" | Where-Object {
             $_.Name -match '^(Origen|Destino)_tmp_\d{8}_\d{6}\.cfg$'
         } | Remove-Item -Force -ErrorAction SilentlyContinue
     }

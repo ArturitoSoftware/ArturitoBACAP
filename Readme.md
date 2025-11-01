@@ -6,6 +6,7 @@ Sistema profesional de backup automatizado con PowerShell y Robocopy, optimizado
 
 - **Backup Paralelizado**: Ejecuta múltiples copias simultáneas (1-32 jobs)
 - **Sistema de Perfiles**: Múltiples configuraciones en los mismos archivos (0-99 perfiles)
+- **Sistema de Exclusiones**: Omite carpetas específicas con archivo Omitir.cfg (modo híbrido)
 - **Modo Protección**: Backup incremental sin borrar archivos obsoletos (NuncaBorra)
 - **Validación Inteligente**: Verifica todas las rutas antes de iniciar
 - **Conversión UNC Automática**: Transforma unidades lógicas a rutas de red
@@ -16,6 +17,42 @@ Sistema profesional de backup automatizado con PowerShell y Robocopy, optimizado
 - **Modo Silencioso**: Ideal para Task Scheduler (sin salidas en pantalla)
 - **Optimización CPU**: Detecta threads óptimos según hardware disponible
 - **Limpieza Automática**: Elimina carpetas obsoletas del destino (excepto modo NuncaBorra)
+- **Arquitectura Modular**: Funciones organizadas por carpetas para máximo orden
+
+## 📂 Estructura del Proyecto
+
+```
+ArturitoBACAP/
+├── ArturitoBACAP.ps1           # Script principal
+│
+├── Conf/                        # Archivos de configuración
+│   ├── configSMTP.xml          # Config email encriptada (generado con -AjustaEmail)
+│   ├── Origen.cfg              # Carpetas origen (creado automáticamente)
+│   ├── Destino.cfg             # Carpeta destino (creado automáticamente)
+│   ├── Omitir.cfg              # Exclusiones de backup (creado automáticamente)
+│   └── MapeosUNC.json          # Histórico de conversiones UNC (generado automáticamente)
+│
+├── Func/                        # Funciones modulares
+│   ├── FuncAyudin.ps1          # Función de ayuda integrada
+│   ├── FuncBorrarRapido.ps1    # Limpieza de carpetas obsoletas
+│   ├── FuncCierraTodo.ps1      # Cierre de aplicaciones
+│   ├── FuncEnviaEmail.ps1      # Envío de notificaciones
+│   ├── FuncGuardaHistorico.ps1 # Rotación de backups históricos
+│   ├── FuncLimpiaLogs.ps1      # Limpieza de logs antiguos
+│   ├── FuncManejaOmitir.ps1    # Procesamiento de exclusiones
+│   ├── FuncManejaPerfiles.ps1  # Procesamiento de perfiles
+│   ├── FuncValidacionUNC.ps1   # Validación y conversión UNC
+│   └── FuncVerificaBACKUP.ps1  # Verificación de integridad
+│
+├── Temp/                        # Archivos temporales (limpiados automáticamente)
+│   └── .gitkeep
+│
+├── Logs/                        # Logs de backup (rotación automática)
+│   └── .gitkeep
+│
+├── README.md                    # Este archivo
+└── .gitignore                   # Exclusiones de Git
+```
 
 ## 📋 Requisitos
 
@@ -34,10 +71,10 @@ Abre PowerShell como **Administrador** en la carpeta del proyecto y ejecuta:
 
 ```powershell
 # Desbloquear todos los archivos .ps1 de la carpeta actual
-Get-ChildItem -Path . -Filter *.ps1 | Unblock-File
+Get-ChildItem -Path . -Recurse -Filter *.ps1 | Unblock-File
 ```
 
-Este comando desbloquea todos los scripts de PowerShell en la carpeta, permitiendo su ejecución sin restricciones.
+Este comando desbloquea todos los scripts de PowerShell en la carpeta y subcarpetas, permitiendo su ejecución sin restricciones.
 
 ### Alternativa: Cambiar Política de Ejecución (NO RECOMENDADO para uso permanente)
 
@@ -55,7 +92,7 @@ Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process
 Para confirmar que los scripts están desbloqueados:
 
 ```powershell
-Get-ChildItem -Path . -Filter *.ps1 | Get-Item -Stream Zone.Identifier -ErrorAction SilentlyContinue
+Get-ChildItem -Path . -Recurse -Filter *.ps1 | Get-Item -Stream Zone.Identifier -ErrorAction SilentlyContinue
 ```
 
 Si no devuelve ningún resultado, los archivos están correctamente desbloqueados.
@@ -73,19 +110,22 @@ cd ArturitoBACAP
 ### 2. Desbloquear scripts (OBLIGATORIO)
 ```powershell
 # Como Administrador
-Get-ChildItem -Path . -Filter *.ps1 | Unblock-File
+Get-ChildItem -Path . -Recurse -Filter *.ps1 | Unblock-File
 ```
 
 ### 3. Configurar archivos
 ```powershell
 # Los archivos se crean automáticamente con ejemplos en la primera ejecución
-# Editar Origen.cfg con las carpetas a respaldar
-notepad Origen.cfg
+# Editar Conf/Origen.cfg con las carpetas a respaldar
+notepad Conf\Origen.cfg
 
-# (Opcional) Editar Destino.cfg para cambiar destino
+# (Opcional) Editar Conf/Destino.cfg para cambiar destino
 # Por defecto usa C:\BCKP en modo estándar
 # Con perfiles requiere destino válido obligatorio
-notepad Destino.cfg
+notepad Conf\Destino.cfg
+
+# (Opcional) Editar Conf/Omitir.cfg para excluir carpetas
+notepad Conf\Omitir.cfg
 ```
 
 ### 4. Configurar email (obligatorio si no usarás -NoEmail)
@@ -177,7 +217,7 @@ notepad Destino.cfg
 
 ### Sistema de Perfiles
 
-Los **perfiles** permiten mantener múltiples configuraciones de backup en los mismos archivos `Origen.cfg` y `Destino.cfg`, seleccionando cuál usar con `-Perfil N`.
+Los **perfiles** permiten mantener múltiples configuraciones de backup en los mismos archivos `Origen.cfg`, `Destino.cfg` y `Omitir.cfg`, seleccionando cuál usar con `-Perfil N`.
 
 #### Formato de Perfiles
 
@@ -213,7 +253,7 @@ D:\Proyectos
 
 #### Ejemplo Completo de Perfiles
 
-**Origen.cfg:**
+**Conf/Origen.cfg:**
 ```
 # Modo estándar (sin perfil)
 C:\Documentos
@@ -235,7 +275,7 @@ D:\Proyectos
 3:D:\Backup_Servidor
 ```
 
-**Destino.cfg:**
+**Conf/Destino.cfg:**
 ```
 # Modo estándar
 C:\BCKP
@@ -265,21 +305,64 @@ C:\BCKP
 .\ArturitoBACAP.ps1 -Perfil 3
 ```
 
-#### Validaciones de Perfiles
+### Sistema de Exclusiones (Omitir.cfg)
 
-✅ **Validaciones automáticas:**
-- Verifica que existan líneas válidas para el perfil seleccionado
-- Valida que el destino tenga solo **UNA** línea por perfil
-- Con perfiles: valida destino obligatorio antes de avanzar
-- Mensajes claros si falta configuración del perfil
+El archivo `Conf/Omitir.cfg` permite excluir carpetas específicas del backup usando un **sistema híbrido** de exclusión.
 
-⚠️ **Importante - Perfiles y Destinos:**
-- **Perfil 0**: Permite usar `C:\BCKP` si no hay destino válido
-- **Perfil 1-99**: REQUIERE destino válido obligatoriamente
-- Los perfiles NO pueden usar el destino por defecto
-- Esto garantiza que cada perfil tenga su destino específico
+#### Tipos de Exclusión
 
-### Origen.cfg
+**1. Nombre Simple** (omite en cualquier nivel):
+```
+node_modules
+.git
+Temp
+```
+Resultado: Omite `C:\Datos\node_modules`, `C:\Docs\Proyectos\node_modules`, etc.
+
+**2. Ruta Relativa** (desde raíz de origen):
+```
+Documentos\Temp
+Proyectos\.git
+```
+Resultado: Omite `[origen]\Documentos\Temp` pero NO `[origen]\Otros\Temp`
+
+**3. Ruta Absoluta** (solo ruta específica):
+```
+C:\Datos\NoBackupear
+D:\Proyectos\Build
+```
+Resultado: Omite SOLO esas rutas exactas
+
+#### Ejemplo Completo de Omitir.cfg
+
+```
+# Modo estándar (sin perfil)
+node_modules
+.git
+$RECYCLE.BIN
+System Volume Information
+
+# Perfil 1 - Exclusiones Personal
+1:Temp
+1:AppData\Local\Temp
+1:.vs
+
+# Perfil 2 - Exclusiones Trabajo
+2:node_modules
+2:.git
+2:C:\Proyectos\ClienteA\Build
+```
+
+#### Conversión UNC Automática
+
+Las exclusiones con unidades lógicas se convierten automáticamente a UNC:
+```
+# Si excluyes: Z:\Temp
+# Y Z: mapea a \\servidor\datos
+# Se excluye: \\servidor\datos\Temp
+```
+
+### Conf/Origen.cfg
 
 Lista de carpetas a respaldar (una por línea). Soporta variables de entorno y perfiles:
 
@@ -315,7 +398,7 @@ D:\Proyectos
 - **Soporta perfiles**: Líneas con formato `N:[ruta]`
 - **Creación automática**: Si no existe, se genera con ejemplos
 
-### Destino.cfg
+### Conf/Destino.cfg
 
 Carpeta destino del backup (**UNA SOLA LÍNEA por perfil**):
 
@@ -341,16 +424,6 @@ D:\Respaldos
 2. Si no hay línea para el perfil → **ERROR** (no usa `C:\BCKP`)
 3. Si la ruta del perfil es inválida → **ERROR** (no usa `C:\BCKP`)
 4. Si hay múltiples líneas del perfil → **ERROR**
-
-**Rutas Soportadas:**
-- `C:\Backups` - Ruta local
-- `D:\Respaldos` - Otro disco local
-- `\\servidor\compartido` - Ruta UNC de red
-- `\\NAS\Backups\Empresa` - UNC con subcarpetas
-- `Z:\` - Unidad mapeada (convierte a UNC)
-- **Soporta perfiles**: Líneas con formato `N:[ruta]`
-
-**Creación Automática**: Si no existe, se genera con ejemplos y usa `C:\BCKP` como destino predeterminado (solo modo estándar).
 
 ### Modo NuncaBorra (Protección)
 
@@ -384,27 +457,7 @@ El modificador `-NuncaBorra` activa un modo de protección que impide la elimina
 - El espacio en disco es limitado
 - Necesitas limpiar archivos obsoletos automáticamente
 
-#### Impacto en Logs y Reportes
-
-- Los logs muestran: "Modo NuncaBorra: ACTIVO"
-- No se reportan carpetas/archivos eliminados
-- La verificación solo compara origen→destino (no viceversa)
-- Los emails indican: "Modo NuncaBorra: Sin eliminación de obsoletos"
-
-#### Ejemplo
-
-```powershell
-# Backup estándar (con borrado)
-.\ArturitoBACAP.ps1 -Verifica
-
-# Backup protegido (sin borrado)
-.\ArturitoBACAP.ps1 -NuncaBorra -Verifica
-
-# Backup incremental con perfil
-.\ArturitoBACAP.ps1 -Perfil 1 -NuncaBorra
-```
-
-### configSMTP.xml
+### Conf/configSMTP.xml
 
 Archivo encriptado generado con `-AjustaEmail`. Contiene:
 - Servidor SMTP y puerto
@@ -413,6 +466,14 @@ Archivo encriptado generado con `-AjustaEmail`. Contiene:
 - Remitente y destinatario
 
 **Seguridad**: El archivo tiene permisos restrictivos automáticos y solo puede ser leído por el usuario que lo creó.
+
+### Conf/MapeosUNC.json
+
+Histórico automático de conversiones de unidades lógicas a rutas UNC:
+- Se genera automáticamente al detectar unidades mapeadas
+- Permite recordar conversiones para futuras ejecuciones
+- Formato JSON simple: `{"Z:": "\\\\servidor\\datos"}`
+- No requiere configuración manual
 
 ## 📊 Logs Generados
 
@@ -423,6 +484,7 @@ Resumen ejecutivo consolidado:
 - Errores y advertencias
 - Conversiones UNC realizadas
 - Carpetas eliminadas (o indicación de modo NuncaBorra)
+- Exclusiones aplicadas (Omitir.cfg)
 - **Adjunto al email**: Siempre se envía
 
 ### BCKP_Detalle_YYYYMMDD_HHMMSS.log
@@ -432,6 +494,7 @@ Log detallado completo:
 - Logs de verificación (si se usa `-Verifica`)
 - Log de limpieza de carpetas obsoletas (excepto con `-NuncaBorra`)
 - Validaciones y conversiones UNC
+- Detalles de exclusiones aplicadas
 - **Adjunto al email**: Siempre se envía junto con el resumen
 
 ### Email con Información de Perfil
@@ -443,7 +506,7 @@ Los emails incluyen información del perfil usado:
 ### Rotación Automática de Logs
 - Logs antiguos (>30 días) se eliminan automáticamente
 - Mantiene el espacio en disco limpio
-- Configurable mediante `FuncLimpiaLogs.ps1`
+- Configurable mediante `Func/FuncLimpiaLogs.ps1`
 
 ## 🔧 Funcionalidades Automáticas
 
@@ -461,6 +524,8 @@ Los emails incluyen información del perfil usado:
 - ✅ Procesamiento automático de perfiles con archivos temporales
 - ✅ Validación estricta de destinos con perfiles (requiere destino válido)
 - ✅ Indicación clara de perfil usado en logs y emails
+- ✅ Procesamiento automático de exclusiones con conversión UNC
+- ✅ Limpieza automática de archivos temporales al finalizar
 
 ## 🚀 Automatización con Task Scheduler
 
@@ -490,28 +555,28 @@ powershell.exe -ExecutionPolicy Bypass -File "C:\Ruta\ArturitoBACAP.ps1" -Perfil
 
 ### "ERROR: Perfil X requiere un destino válido en Destino.cfg"
 **Solución**: 
-1. Edita `Destino.cfg` y agrega una línea con formato `X:[ruta_destino]`
+1. Edita `Conf/Destino.cfg` y agrega una línea con formato `X:[ruta_destino]`
 2. Ejemplo: `1:D:\Backup_Personal` para Perfil 1
 3. Los perfiles NO pueden usar `C:\BCKP` como fallback
 
 ### "No se encontraron rutas válidas para el perfil X"
 **Solución**:
-1. Edita `Origen.cfg` y agrega líneas con formato `X:[ruta_origen]`
+1. Edita `Conf/Origen.cfg` y agrega líneas con formato `X:[ruta_origen]`
 2. Ejemplo: `1:C:\Documents` para Perfil 1
 3. Asegúrate de que las rutas existan
 
 ### "DESTINO INVÁLIDO"
 **Solución**: 
-- En modo estándar: Verifica la ruta en `Destino.cfg`. El script intentará usar `C:\BCKP` como fallback.
+- En modo estándar: Verifica la ruta en `Conf/Destino.cfg`. El script intentará usar `C:\BCKP` como fallback.
 - Con perfiles: Debes proporcionar un destino válido obligatorio. No hay fallback a `C:\BCKP`.
 
 ### "NO HAY CARPETAS VÁLIDAS PARA BACKUP"
-**Solución**: Revisa `Origen.cfg` y asegúrate de que las rutas existan y sean accesibles.
+**Solución**: Revisa `Conf/Origen.cfg` y asegúrate de que las rutas existan y sean accesibles.
 
 ### Error "no se puede cargar el archivo... no está firmado digitalmente"
 **Solución**: Ejecuta como Administrador:
 ```powershell
-Get-ChildItem -Path . -Filter *.ps1 | Unblock-File
+Get-ChildItem -Path . -Recurse -Filter *.ps1 | Unblock-File
 ```
 
 ### Error de permisos
@@ -530,7 +595,7 @@ Get-ChildItem -Path . -Filter *.ps1 | Unblock-File
 ### Los adjuntos del email son muy grandes
 **Solución**: ArturitoBACAP comprime automáticamente adjuntos >10MB. Si aún son grandes, considera:
 - Reducir el nivel de detalle en logs
-- Ajustar la retención de logs con `FuncLimpiaLogs.ps1`
+- Ajustar la retención de logs con `Func/FuncLimpiaLogs.ps1`
 
 ### El destino se llena de archivos viejos
 **Solución**: 
@@ -538,52 +603,29 @@ Get-ChildItem -Path . -Filter *.ps1 | Unblock-File
 - Para limpiar automáticamente, ejecuta sin `-NuncaBorra`
 - Considera usar perfiles: uno con `-NuncaBorra` para histórico, otro sin él para limpieza
 
-## 📁 Estructura del Proyecto
-
-```
-ArturitoBACAP/
-├── ArturitoBACAP.ps1           # Script principal
-├── FuncAyudin.ps1              # Función de ayuda integrada
-├── FuncBorrarRapido.ps1        # Limpieza de carpetas obsoletas
-├── FuncVerificaBACKUP.ps1      # Verificación de integridad
-├── FuncValidacionUNC.ps1       # Validación y conversión UNC
-├── FuncCierraTodo.ps1          # Cierre de aplicaciones
-├── FuncLimpiaLogs.ps1          # Limpieza de logs antiguos
-├── FuncGuardaHistorico.ps1     # Rotación de backups históricos
-├── FuncEnviaEmail.ps1          # Envío de notificaciones
-├── FuncManejaPerfiles.ps1      # Procesamiento de perfiles
-├── Origen.cfg                  # Configuración de carpetas origen (creado automáticamente)
-├── Destino.cfg                 # Configuración de destino (creado automáticamente)
-├── configSMTP.xml              # Configuración email encriptada (generado con -AjustaEmail)
-├── README.md                   # Este archivo
-├── .gitignore                  # Exclusiones de Git
-├── Logs/                       # Carpeta de logs (creada automáticamente)
-└── Temp/                       # Archivos temporales de perfiles (limpiados automáticamente)
-```
-
-## 🤝 Contribución
-
-Las contribuciones son bienvenidas. Por favor:
-
-1. Fork el proyecto
-2. Crea una rama para tu feature (`git checkout -b feature/NuevaFuncionalidad`)
-3. Commit tus cambios (`git commit -m 'Agrega nueva funcionalidad'`)
-4. Push a la rama (`git push origin feature/NuevaFuncionalidad`)
-5. Abre un Pull Request
+### Las exclusiones no funcionan
+**Solución**:
+1. Verifica el formato en `Conf/Omitir.cfg`
+2. Nombres simples: sin barras (ej: `node_modules`)
+3. Rutas relativas: desde raíz de origen (ej: `Documentos\Temp`)
+4. Rutas absolutas: ruta completa (ej: `C:\Datos\NoBackupear`)
+5. Usa `-Debug` para ver las exclusiones aplicadas
 
 ## 📝 Notas Importantes
 
-- ⚠️ **Scripts no firmados**: Debes desbloquear los archivos `.ps1` antes de ejecutar
+- ⚠️ **Scripts no firmados**: Debes desbloquear los archivos `.ps1` recursivamente antes de ejecutar
 - ⚠️ El modo silencioso (sin `-Debug`) es ideal para Task Scheduler
 - ⚠️ `-AjustaEmail` tiene prioridad sobre otros modificadores
 - ⚠️ El destino configurado se valida antes del backup
 - ⚠️ Los archivos de configuración con datos sensibles NO deben subirse a Git
-- ⚠️ `Origen.cfg` y `Destino.cfg` se crean automáticamente con ejemplos si no existen
+- ⚠️ Los archivos en `Conf/` se crean automáticamente con ejemplos si no existen
 - ⚠️ Los logs se envían por email en dos archivos: resumen ejecutivo y detalle completo
 - ⚠️ **PERFILES Y DESTINOS**: Los perfiles (1-99) REQUIEREN destino válido. No se permite usar `C:\BCKP` como fallback
 - ⚠️ **MODO NUNCABORRA**: Protege el destino contra borrados. Útil para backups incrementales acumulativos
 - ⚠️ Los emails muestran el perfil usado: `[P1]` en subject, `Perfil: 1` en body
-- ⚠️ Los archivos temporales de perfiles (carpeta `Temp/`) se limpian automáticamente al finalizar
+- ⚠️ Los archivos temporales (carpeta `Temp/`) se limpian automáticamente al finalizar
+- ⚠️ El histórico de conversiones UNC se guarda en `Conf/MapeosUNC.json`
+- ⚠️ Las exclusiones en `Conf/Omitir.cfg` soportan perfiles y conversión UNC automática
 
 ## 📄 Licencia
 

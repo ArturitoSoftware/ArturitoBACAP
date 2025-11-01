@@ -12,6 +12,7 @@
     - Lectura de destino desde archivo Destino.cfg
     - Modo NuncaBorra para proteger archivos en destino
     - Sistema de perfiles para múltiples configuraciones
+    - Sistema de omisión de carpetas con Omitir.cfg (híbrido)
 #>
 
 param(
@@ -34,8 +35,13 @@ param(
 # ================================
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$logDir = Join-Path $scriptDir "Logs"
-$configEmailFile = Join-Path $scriptDir "configSMTP.xml"
+
+$logDir    = Join-Path $scriptDir "Logs"
+$confDir   = Join-Path $scriptDir "Conf"
+$funcDir   = Join-Path $scriptDir "Func"
+$tempDir   = Join-Path $scriptDir "Temp"
+
+$configEmailFile = Join-Path $confDir "configSMTP.xml"
 
 function Write-Message {
     param($Message, $Color = "White")
@@ -44,17 +50,23 @@ function Write-Message {
     }
 }
 
-# -------------
-    . (Join-Path $scriptDir "FuncAyudin.ps1")
-    . (Join-Path $scriptDir "FuncBorrarRapido.ps1")
-    . (Join-Path $scriptDir "FuncVerificaBACKUP.ps1")
-    . (Join-Path $scriptDir "FuncValidacionUNC.ps1")
-    . (Join-Path $scriptDir "FuncCierraTodo.ps1")
-    . (Join-Path $scriptDir "FuncLimpiaLogs.ps1")
-    . (Join-Path $scriptDir "FuncGuardaHistorico.ps1")
-    . (Join-Path $scriptDir "FuncEnviaEmail.ps1")
-    . (Join-Path $scriptDir "FuncManejaPerfiles.ps1")
-# -------------
+# ================================
+# 2. Cargar funciones por dot-sourcing
+# ================================
+. (Join-Path $funcDir "FuncBorrarRapido.ps1")
+. (Join-Path $funcDir "FuncVerificaBACKUP.ps1")
+. (Join-Path $funcDir "FuncValidacionUNC.ps1")
+. (Join-Path $funcDir "FuncCierraTodo.ps1")
+. (Join-Path $funcDir "FuncManejaPerfiles.ps1")
+. (Join-Path $funcDir "FuncManejaOmitir.ps1")
+. (Join-Path $funcDir "FuncGuardaHistorico.ps1") 
+. (Join-Path $funcDir "FuncAyudin.ps1")
+. (Join-Path $funcDir "FuncLimpiaLogs.ps1")
+. (Join-Path $funcDir "FuncEnviaEmail.ps1")
+
+# ================================
+# 3. Validación de parámetros
+# ================================
 
 $validParams = @('NoEmail', 'AjustaEmail', 'Simultaneas', 'Rapidito', 'Debug', 'Verifica', 'Apagar', 'Ayuda', 'CierroTodo', 'Historico', 'NuncaBorra', 'Perfil')
 
@@ -106,11 +118,12 @@ if ($Perfil -lt 0 -or $Perfil -gt 99) {
 }
 
 # ================================
-# 3. Banner y validaciones
+# 4. Banner y validaciones
 # ================================
 
-$carpetasFile = Join-Path $scriptDir "Origen.cfg"
-$destinoFile = Join-Path $scriptDir "Destino.cfg"
+$carpetasFile = Join-Path $confDir "Origen.cfg"
+$destinoFile = Join-Path $confDir "Destino.cfg"
+$omitirFile = Join-Path $confDir "Omitir.cfg"
 
 Write-Host @"
 
@@ -145,11 +158,11 @@ if ($CierroTodo) {
 }
 
 # ================================
-# 2.5. PROCESAMIENTO DE PERFILES
+# 5. PROCESAMIENTO DE PERFILES Y OMISIONES
 # ================================
 Write-Message "`n🔧 Procesando configuración de archivos..." "Cyan"
 
-$resultadoPerfiles = Invoke-ProcesoPerfiles -ArchivoOrigen $carpetasFile -ArchivoDestino $destinoFile -Perfil $Perfil -ScriptDir $scriptDir
+$resultadoPerfiles = Invoke-ProcesoPerfiles -ArchivoOrigen $carpetasFile -ArchivoDestino $destinoFile -Perfil $Perfil
 
 if (!$resultadoPerfiles.Success) {
     Write-Host "`n❌ ERROR AL PROCESAR ARCHIVOS DE CONFIGURACIÓN:" -ForegroundColor Red
@@ -162,10 +175,18 @@ if (!$resultadoPerfiles.Success) {
     exit 1
 }
 
+# Procesar Omitir.cfg
+Write-Message "`n🚫 Procesando exclusiones..." "Cyan"
+$resultadoOmitir = Get-CarpetasOmitir -ArchivoOmitir $omitirFile -Perfil $Perfil
+
+if (!$resultadoOmitir.ArchivoExiste) {
+    New-OmitirConfigFile -ArchivoOmitir $omitirFile
+}
+
 if ($Perfil -gt 0) {
-    Write-Message "✅ Perfil $Perfil activado - $($resultadoPerfiles.LineasOrigen) carpetas origen, $($resultadoPerfiles.LineasDestino) destino" "Green"
+    Write-Message "✅ Perfil $Perfil activado - $($resultadoPerfiles.LineasOrigen) origen, $($resultadoPerfiles.LineasDestino) destino, $($resultadoOmitir.LineasProcesadas) omitir" "Green"
 } else {
-    Write-Message "✅ Modo estándar (sin perfil) - $($resultadoPerfiles.LineasOrigen) carpetas origen, $($resultadoPerfiles.LineasDestino) destino" "Green"
+    Write-Message "✅ Modo estándar - $($resultadoPerfiles.LineasOrigen) origen, $($resultadoPerfiles.LineasDestino) destino, $($resultadoOmitir.LineasProcesadas) omitir" "Green"
 }
 
 # Usar archivos temporales procesados
@@ -173,7 +194,7 @@ $carpetasFile = $resultadoPerfiles.OrigenTmp
 $destinoFile = $resultadoPerfiles.DestinoTmp
 
 # ================================
-# Cargar destino desde archivo o usar default
+# 6. Cargar destino desde archivo o usar default
 # ================================
 $destinoDefault = "C:\BCKP"
 $destinoConfigValido = $false
@@ -202,7 +223,6 @@ if (Test-Path $destinoFile) {
         Write-Message "   Solo se permite una ruta de destino" "Yellow"
         Write-Message "   Usando destino por defecto: $destinoDefault" "Yellow"
     } else {
-        # Convertir explícitamente a string para evitar errores
         $destinoConfig = [string]$lineasDestino[0]
         $destinoConfig = $destinoConfig.Trim()
         Write-Message "📍 Destino configurado: $destinoConfig" "Cyan"
@@ -276,42 +296,43 @@ if (Test-Path $carpetasFile) {
     
     if (!$Debug) {
         if (!(Test-Path $logDir)) { New-Item -Path $logDir -ItemType Directory -Force | Out-Null }
-        Add-Content -Path (Join-Path $logDir "Error_$(Get-Date -Format 'yyyyMMdd_HHmmss').log") -Value "ERROR: $errorMsg"
+        Add-Content -Path (Join-Path $logDir "Error_$(Get-Date -Format 'yyyyMMdd_HHmmss').log") -Value "ERROR: $errorMsg" -Encoding UTF8
     }
     exit 1
 }
 
-$exclusiones = @()
-
-# ================================
-# 4. Configuración de paths de log
-# ================================
+# =============================================
+# 7. Configuración de paths de log y temporales
+# =============================================
 
 if (!(Test-Path $logDir)) {
     New-Item -Path $logDir -ItemType Directory -Force | Out-Null
     Write-Message "📁 Creado directorio: $logDir" "Green"
 }
 
+if (!(Test-Path $tempDir)) {
+    New-Item -Path $tempDir -ItemType Directory -Force | Out-Null
+    Write-Message "📁 Creado directorio: $tempDir" "Green"
+}
+
 # ================================
-# 6. VALIDACIÓN COMPLETA DE RUTAS
+# 8. VALIDACIÓN COMPLETA DE RUTAS
 # ================================
 
 $validacionCompleta = Invoke-PathValidation -CarpetasOrigen $carpetasOrigen -Destino $destino
 
 if (!$validacionCompleta.DestinoValido) {
     if ($Perfil -gt 0) {
-        # Con perfil NO se permite fallback a destino por defecto
         $errorMsg = "❌ DESTINO INVÁLIDO PARA PERFIL ${Perfil}: $($validacionCompleta.ErrorDestino)"
         Write-Message $errorMsg "Red"
         Write-Host "💡 Los perfiles requieren destinos válidos específicos" -ForegroundColor Yellow
         Write-Host "💡 No se puede usar destino por defecto (C:\BCKP) con perfiles" -ForegroundColor Yellow
         if (!$Debug) {
-            Add-Content -Path (Join-Path $logDir "Error_$(Get-Date -Format 'yyyyMMdd_HHmmss').log") -Value "ERROR: $errorMsg"
+            Add-Content -Path (Join-Path $logDir "Error_$(Get-Date -Format 'yyyyMMdd_HHmmss').log") -Value "ERROR: $errorMsg" -Encoding UTF8
         }
         exit 1
     }
     
-    # Sin perfil, intentar con destino por defecto
     if ($destinoConfigValido -and $destino -ne $destinoDefault) {
         Write-Message "`n⚠️  Destino configurado '$destino' no es válido: $($validacionCompleta.ErrorDestino)" "Yellow"
         Write-Message "🔄 Intentando con destino por defecto: $destinoDefault" "Cyan"
@@ -323,7 +344,7 @@ if (!$validacionCompleta.DestinoValido) {
             $errorMsg = "❌ DESTINO POR DEFECTO TAMBIÉN INVÁLIDO: $($validacionCompleta.ErrorDestino)"
             Write-Message $errorMsg "Red"
             if (!$Debug) {
-                Add-Content -Path (Join-Path $logDir "Error_$(Get-Date -Format 'yyyyMMdd_HHmmss').log") -Value "ERROR: $errorMsg"
+                Add-Content -Path (Join-Path $logDir "Error_$(Get-Date -Format 'yyyyMMdd_HHmmss').log") -Value "ERROR: $errorMsg" -Encoding UTF8
             }
             exit 1
         } else {
@@ -333,7 +354,7 @@ if (!$validacionCompleta.DestinoValido) {
         $errorMsg = "❌ DESTINO INVÁLIDO: $($validacionCompleta.ErrorDestino)"
         Write-Message $errorMsg "Red"
         if (!$Debug) {
-            Add-Content -Path (Join-Path $logDir "Error_$(Get-Date -Format 'yyyyMMdd_HHmmss').log") -Value "ERROR: $errorMsg"
+            Add-Content -Path (Join-Path $logDir "Error_$(Get-Date -Format 'yyyyMMdd_HHmmss').log") -Value "ERROR: $errorMsg" -Encoding UTF8
         }
         exit 1
     }
@@ -347,7 +368,7 @@ if ($validacionCompleta.CarpetasValidas.Count -eq 0) {
     
     if (!$Debug) {
         $errorCompleto = "$errorMsg`n$($validacionCompleta.ErroresOrigen -join "`n")"
-        Add-Content -Path (Join-Path $logDir "Error_$(Get-Date -Format 'yyyyMMdd_HHmmss').log") -Value "ERROR: $errorCompleto"
+        Add-Content -Path (Join-Path $logDir "Error_$(Get-Date -Format 'yyyyMMdd_HHmmss').log") -Value "ERROR: $errorCompleto" -Encoding UTF8
     }
     exit 1
 }
@@ -366,7 +387,7 @@ if ($Historico -gt 0) {
 }
 
 # ================================
-# 8. Configuración optimizada de Robocopy
+# 9. Configuración optimizada de Robocopy
 # ================================
 $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
 
@@ -397,9 +418,16 @@ if ($Rapidito) {
     $opcionesBase += @("/COPY:DAT")
 }
 
+# Aplicar exclusiones de Omitir.cfg
+$exclusiones = Format-RobocopyExclusions -CarpetasOmitir $resultadoOmitir.CarpetasOmitir
+
 if ($exclusiones.Count -gt 0) {
-    $excluir = ($exclusiones | ForEach-Object { "/XF `"$_`"" }) -join " "
-    $opcionesBase += $excluir.Split(' ')
+    $opcionesBase += $exclusiones
+    Write-Message "🚫 Se aplicará$($(if ($resultadoOmitir.CarpetasOmitir.Count -eq 1)
+                                        { ' 1 exclusión de carpeta' }
+                                        else
+                                            { " $($resultadoOmitir.CarpetasOmitir.Count) exclusiones de carpetas" }))" "Yellow"
+
 }
 
 # ================================
@@ -526,15 +554,15 @@ function Remove-ObsoleteFolders {
                 Write-Message "🗑️  Eliminando: $carpetaObsoleta" "Red"
                 Remove-Item -Path $rutaCompleta -Recurse -Force
                 $carpetasEliminadas += $carpetaObsoleta
-                Add-Content -Path $logLimpieza -Value "$(Get-Date -Format 'dd/MM/yyyy HH:mm:ss'): ELIMINADA - $carpetaObsoleta"
+                Add-Content -Path $logLimpieza -Value "$(Get-Date -Format 'dd/MM/yyyy HH:mm:ss'): ELIMINADA - $carpetaObsoleta" -Encoding UTF8
             } catch {
                 Write-Message "❌ Error eliminando $carpetaObsoleta`: $($_.Exception.Message)" "Red"
-                Add-Content -Path $logLimpieza -Value "$(Get-Date -Format 'dd/MM/yyyy HH:mm:ss'): ERROR eliminando $carpetaObsoleta - $($_.Exception.Message)"
+                Add-Content -Path $logLimpieza -Value "$(Get-Date -Format 'dd/MM/yyyy HH:mm:ss'): ERROR eliminando $carpetaObsoleta - $($_.Exception.Message)" -Encoding UTF8
             }
         }
     } else {
         Write-Message "✅ No hay carpetas para borrar en destino" "Green"
-        Add-Content -Path $logLimpieza -Value "$(Get-Date -Format 'dd/MM/yyyy HH:mm:ss'): No hay carpetas a borrar"
+        Add-Content -Path $logLimpieza -Value "$(Get-Date -Format 'dd/MM/yyyy HH:mm:ss'): No hay carpetas a borrar" -Encoding UTF8
     }
     
     return @{
@@ -555,6 +583,10 @@ if ($NuncaBorra) {
 
 if ($Perfil -gt 0) {
     Write-Message "🎯 PERFIL $Perfil ACTIVO" "Cyan"
+}
+
+if ($resultadoOmitir.LineasProcesadas -gt 0) {
+    Write-Message "🚫 EXCLUSIONES ACTIVAS: $($resultadoOmitir.LineasProcesadas) carpetas serán omitidas" "Yellow"
 }
 
 Write-Message "🖥️  CPU: $numCores cores lógicos detectados" "Cyan"
@@ -581,7 +613,10 @@ if ($Verifica) {
     if ($NuncaBorra) {
         Write-Message "🛡️  Verificación en modo NuncaBorra (solo verifica que origen esté en destino)" "Yellow"
     }
-    $resultadoVerificacion = Test-BackupIntegrity -CarpetasValidas $carpetasValidas -Destino $DestinoFinal -LogDir $logDir -Timestamp $timestamp
+    $resultadoVerificacion = Test-BackupIntegrity `
+    -CarpetasValidas $carpetasValidas `
+    -Destino $DestinoFinal `
+    -Exclusiones $exclusiones
     
     if ($resultadoVerificacion.EsExitosa) {
         Write-Message "`r`n  ✅ VERIFICACIÓN EXITOSA en $($resultadoVerificacion.Duracion.ToString('hh\:mm\:ss\.fff'))" "Green"
@@ -590,6 +625,7 @@ if ($Verifica) {
         Write-Message "    Errores en: $($resultadoVerificacion.Errores -join ', ')" "Red"
     }
 }
+
 # ================================
 # 14. Consolidar logs
 # ================================
@@ -605,9 +641,8 @@ $resumenCompleto = @"
 Perfil: $(if($Perfil -gt 0){"$Perfil"}else{"Estándar (sin perfil)"})
 Modo: $(if($Rapidito){'Ultra-rápido'}else{'Optimizado'})
 $(if($NuncaBorra){'🛡️  Modo NuncaBorra: ACTIVO (sin borrado de obsoletos)'})
-Jobs simultáneos: $Simultaneas
-CPU: $numCores cores lógicos detectados
-ArturitoBacap usará: $threadsOptimos threads
+Trabajos simultáneos: $Simultaneas
+CPU: $numCores cores lógicos detectados, ArturitoBacap usará: $threadsOptimos threads
 Duración total backup: $($resultadoBackup.Duracion.ToString('hh\:mm\:ss'))
 $(if($Verifica){"Duración verificación: $($resultadoVerificacion.Duracion.ToString('hh\:mm\:ss'))"})
 
@@ -620,6 +655,7 @@ $($carpetasOrigen | ForEach-Object {"   $_"} | Out-String)
 === VALIDACIÓN DE RUTAS ===
 Carpetas procesadas: $($carpetasValidas.Count)
 Carpetas inválidas: $($validacionCompleta.CarpetasInvalidas.Count)
+Carpetas omitidas: $($resultadoOmitir.LineasProcesadas)
 Conversiones UNC: $($validacionCompleta.ConversionesUNC.Count)
 Destino creado: $(if($validacionCompleta.DestinoCreado){'SÍ'}else{'NO'})
 
@@ -631,7 +667,30 @@ $(if($Verifica){"Verificación: $(if($resultadoVerificacion.EsExitosa){'EXITOSA'
 Apagar equipo: $(if($Apagar){'SÍ'}else{'NO'})
 
 $(if($validacionCompleta.ConversionesUNC.Count -gt 0){"🔄 CONVERSIONES UNC REALIZADAS:"})
-$(if($validacionCompleta.ConversionesUNC.Count -gt 0){$($validacionCompleta.ConversionesUNC | ForEach-Object {"   $($_.RutaOriginal) → $($_.RutaConvertida) ($($_.Metodo))"}) -join "`n"})
+$(if($validacionCompleta.ConversionesUNC.Count -gt 0){
+    $validacionCompleta.ConversionesUNC | ForEach-Object {
+        $etiqueta = if ($_.RutaOriginal -eq $validacionCompleta.DestinoOriginal) { "[DESTINO]" } else { "[ORIGEN] " }
+        "   $etiqueta $($_.RutaOriginal) → $($_.RutaConvertida) ($($_.Metodo))"
+    }
+} -join "`n")
+
+$(if($resultadoOmitir.LineasProcesadas -gt 0){"🚫 CARPETAS OMITIDAS EN EL BACKUP:"})
+$(if($resultadoOmitir.LineasProcesadas -gt 0){
+    $lineas = @()
+    if ($resultadoOmitir.Clasificacion.NombresRelativos.Count -gt 0) {
+        $lineas += "   🏷️  Nombres simples ($($resultadoOmitir.Clasificacion.NombresRelativos.Count)):"
+        $resultadoOmitir.Clasificacion.NombresRelativos | ForEach-Object { $lineas += "      • $_" }
+    }
+    if ($resultadoOmitir.Clasificacion.RutasRelativas.Count -gt 0) {
+        $lineas += "   📁 Rutas relativas ($($resultadoOmitir.Clasificacion.RutasRelativas.Count)):"
+        $resultadoOmitir.Clasificacion.RutasRelativas | ForEach-Object { $lineas += "      • $_" }
+    }
+    if ($resultadoOmitir.Clasificacion.RutasAbsolutas.Count -gt 0) {
+        $lineas += "   📍 Rutas absolutas ($($resultadoOmitir.Clasificacion.RutasAbsolutas.Count)):"
+        $resultadoOmitir.Clasificacion.RutasAbsolutas | ForEach-Object { $lineas += "      • $_" }
+    }
+    $lineas -join "`n"
+})
 
 $(if($validacionCompleta.CarpetasInvalidas.Count -gt 0){"❌ CARPETAS INVÁLIDAS:"})
 $(if($validacionCompleta.CarpetasInvalidas.Count -gt 0){$($validacionCompleta.ErroresOrigen | ForEach-Object {"   $_"}) -join "`n"})
@@ -641,11 +700,12 @@ $(if($NuncaBorra){"🛡️  MODO NUNCABORRA: No se eliminaron carpetas ni archiv
 
 === FIN BACKUP: $($resultadoBackup.Fin.ToString("dd/MM/yyyy HH:mm:ss")) ===
 
-=== Software By Arturito USELO BAJO SU RESPONSABILIDAD
+=== ArturitoBACAP by ArturitoSoftware USELO BAJO SU RESPONSABILIDAD
+=== https://github.com/ArturitoSoftware/ArturitoBACAP
 === Soporte Infoquil by WAJ
 "@
 
-Set-Content -Path $logResumen -Value $resumenCompleto
+Set-Content -Path $logResumen -Value $resumenCompleto -Encoding UTF8
 
 $detalleCompleto = @"
 ==================================================
@@ -657,9 +717,8 @@ Timestamp: $timestamp
 Perfil: $(if($Perfil -gt 0){"$Perfil"}else{"Estándar (sin perfil)"})
 Modo: $(if($Rapidito){'Ultra-rápido'}else{'Optimizado'})
 $(if($NuncaBorra){'🛡️  Modo NuncaBorra: ACTIVO'})
-Jobs simultáneos: $Simultaneas
-CPU: $numCores cores lógicos detectados
-ArturitoBacap usará: $threadsOptimos threads
+Trabajos simultáneos: $Simultaneas
+CPU: $numCores cores lógicos detectados, ArturitoBacap usará: $threadsOptimos threads
 
 === CARPETAS DE ORIGEN ===
 $($carpetasOrigen | ForEach-Object {"   $_"} | Out-String)
@@ -670,10 +729,34 @@ $($carpetasOrigen | ForEach-Object {"   $_"} | Out-String)
 === VALIDACIÓN DE RUTAS ===
 Carpetas originales procesadas: $($carpetasOrigen.Count)
 Carpetas válidas finales: $($validacionCompleta.CarpetasValidas.Count)
+Carpetas omitidas: $($resultadoOmitir.LineasProcesadas)
 Conversiones UNC realizadas: $($validacionCompleta.ConversionesUNC.Count)
 
 $(if($validacionCompleta.ConversionesUNC.Count -gt 0){"CONVERSIONES UNC DETALLADAS:"})
-$(if($validacionCompleta.ConversionesUNC.Count -gt 0){$($validacionCompleta.ConversionesUNC | ForEach-Object {"  Origen: $($_.RutaOriginal)`n  UNC: $($_.RutaConvertida)`n  Método: $($_.Metodo)`n  Tipo: $(if($_.EsRed){'Red'}else{'Local'})`n"}) -join "`n"})
+$(if($validacionCompleta.ConversionesUNC.Count -gt 0){
+    $validacionCompleta.ConversionesUNC | ForEach-Object {
+        $etiqueta = if ($_.RutaOriginal -eq $validacionCompleta.DestinoOriginal) { "[DESTINO]" } else { "[ORIGEN] " }
+        "$etiqueta`n  Origen: $($_.RutaOriginal)`n  UNC: $($_.RutaConvertida)`n  Método: $($_.Metodo)`n  Tipo: $(if($_.EsRed){'Red'}else{'Local'})`n"
+    }
+} -join "`n")
+
+$(if($resultadoOmitir.LineasProcesadas -gt 0){"CARPETAS OMITIDAS EN EL BACKUP:"})
+$(if($resultadoOmitir.LineasProcesadas -gt 0){
+    $lineas = @()
+    if ($resultadoOmitir.Clasificacion.NombresRelativos.Count -gt 0) {
+        $lineas += "NOMBRES SIMPLES (omiten en cualquier nivel):"
+        $resultadoOmitir.Clasificacion.NombresRelativos | ForEach-Object { $lineas += "  • $_" }
+    }
+    if ($resultadoOmitir.Clasificacion.RutasRelativas.Count -gt 0) {
+        $lineas += "`nRUTAS RELATIVAS (desde raíz de origen):"
+        $resultadoOmitir.Clasificacion.RutasRelativas | ForEach-Object { $lineas += "  • $_" }
+    }
+    if ($resultadoOmitir.Clasificacion.RutasAbsolutas.Count -gt 0) {
+        $lineas += "`nRUTAS ABSOLUTAS (específicas):"
+        $resultadoOmitir.Clasificacion.RutasAbsolutas | ForEach-Object { $lineas += "  • $_" }
+    }
+    $lineas -join "`n"
+})
 
 $(if($validacionCompleta.ErroresOrigen.Count -gt 0){"ERRORES DE VALIDACIÓN:"})
 $(if($validacionCompleta.ErroresOrigen.Count -gt 0){$($validacionCompleta.ErroresOrigen | ForEach-Object {"  $_"}) -join "`n"})
@@ -696,6 +779,7 @@ foreach ($jobInfo in $resultadoBackup.Jobs) {
         $logContent = $logContent -replace "-------------------------------------------------------------------------------\s+ROBOCOPY\s+::\s+Herramienta para copia eficaz de archivos\s+-------------------------------------------------------------------------------", "================================================================================================"
         $logContent = $logContent -replace "Director.", " Carpetas"
         $logContent = $logContent -replace "Extras", "No en Origen (borradas en destino)"
+        $logContent = ($logContent -split "`r?`n" | Where-Object { $_ -notmatch '^\s*(Dirs\.\s*de\s+ejecutables\s*:|Opciones\s*:)' }) -join "`r`n"
         $detalleCompleto += $logContent
         $detalleCompleto += "`n"
         
@@ -713,6 +797,7 @@ if ($Verifica) {
             $logContent = $logContent -replace "-------------------------------------------------------------------------------\s+ROBOCOPY\s+::\s+Herramienta para copia eficaz de archivos\s+-------------------------------------------------------------------------------", "================================================================================================"
             $logContent = $logContent -replace "Director.", " Carpetas"
             $logContent = $logContent -replace "Extras", "No en Origen"
+            $logContent = ($logContent -split "`r?`n" | Where-Object { $_ -notmatch '^\s*(Dirs\.\s*de\s+ejecutables\s*:|Opciones\s*:)' }) -join "`r`n"
             $detalleCompleto += $logContent
             $detalleCompleto += "`n"
             
@@ -727,9 +812,10 @@ if ($CierroTodo) {
 
 $detalleCompleto += "`n=== FIN LOG DETALLADO: $(Get-Date -Format "dd/MM/yyyy HH:mm:ss") ===
 
-=== Software By Arturito USELO BAJO SU RESPONSABILIDAD
+=== ArturitoBACAP by ArturitoSoftware USELO BAJO SU RESPONSABILIDAD
+=== https://github.com/ArturitoSoftware/ArturitoBACAP
 === Soporte Infoquil by WAJ"
-Set-Content -Path $logDetalle -Value $detalleCompleto
+Set-Content -Path $logDetalle -Value $detalleCompleto -Encoding UTF8
 
 if (!$NuncaBorra -and (Test-Path $resultadoLimpieza.LogPath)) {
     Remove-Item $resultadoLimpieza.LogPath -Force -ErrorAction SilentlyContinue
@@ -764,6 +850,10 @@ if ($validacionCompleta.ConversionesUNC.Count -gt 0) {
     Write-Message "  🔄 Conversiones UNC realizadas: $($validacionCompleta.ConversionesUNC.Count)" "Cyan"
 }
 
+if ($resultadoOmitir.LineasProcesadas -gt 0) {
+    Write-Message "  🚫 Carpetas omitidas: $($resultadoOmitir.LineasProcesadas)" "Yellow"
+}
+
 if (!$NuncaBorra -and $resultadoLimpieza.CarpetasEliminadas.Count -gt 0) {
     Write-Message "  🗑️  Carpetas eliminadas: $($resultadoLimpieza.CarpetasEliminadas -join ', ')" "Yellow"
 } elseif ($NuncaBorra) {
@@ -796,6 +886,7 @@ if (!$NoEmail) {
     📦 Backup: $($resultadoBackup.Duracion.ToString('hh\:mm\:ss'))
 $(if($Verifica){"    🔍 Verificación: $($resultadoVerificacion.Duracion.ToString('hh\:mm\:ss'))"})
 📂 Carpetas válidas: $($carpetasValidas.Count)
+🚫 Carpetas omitidas: $($resultadoOmitir.LineasProcesadas)
 🔄 Conversiones UNC: $($validacionCompleta.ConversionesUNC.Count)
 🗑️ Eliminadas: $(if($NuncaBorra){'N/A (Modo NuncaBorra)'}else{$resultadoLimpieza.CarpetasEliminadas.Count})
 🔥 Modo: $(if($Rapidito){'Ultra-rápido'}else{'Optimizado'}) ($Simultaneas jobs)
@@ -805,7 +896,17 @@ $(if($NuncaBorra){'🛡️  Modo NuncaBorra: ACTIVO'})
 $(if($Verifica){"🔍 Verificación: $(if($resultadoVerificacion.EsExitosa){'✅ EXITOSA'}else{'⚠️ CON ERRORES'})"})
 $(if($Apagar){'🔌 Equipo se apagará automáticamente'}else{'💻 Equipo permanece encendido'})
 
-$(if ($validacionCompleta.ConversionesUNC.Count -gt 0) { "🔄 CONVERSIONES UNC: $($validacionCompleta.ConversionesUNC.Count) realizadas" })
+$(if ($validacionCompleta.ConversionesUNC.Count -gt 0) { 
+    $destinos = ($validacionCompleta.ConversionesUNC | Where-Object { $_.RutaOriginal -eq $validacionCompleta.DestinoOriginal }).Count
+    $origenes = $validacionCompleta.ConversionesUNC.Count - $destinos
+    "🔄 CONVERSIONES UNC: $($validacionCompleta.ConversionesUNC.Count) realizadas ($origenes origen$(if($origenes -ne 1){'es'}), $destinos destino$(if($destinos -ne 1){'s'}))" 
+})
+$(if ($resultadoOmitir.LineasProcesadas -gt 0) { 
+    $nombres = $resultadoOmitir.Clasificacion.NombresRelativos.Count
+    $relativas = $resultadoOmitir.Clasificacion.RutasRelativas.Count
+    $absolutas = $resultadoOmitir.Clasificacion.RutasAbsolutas.Count
+    "🚫 EXCLUSIONES: $($resultadoOmitir.LineasProcesadas) ($nombres nombre$(if($nombres -ne 1){'s'}), $relativas relativa$(if($relativas -ne 1){'s'}), $absolutas absoluta$(if($absolutas -ne 1){'s'}))"
+})
 $(if ($validacionCompleta.CarpetasInvalidas.Count -gt 0) { "❌ CARPETAS INVÁLIDAS: $($validacionCompleta.CarpetasInvalidas.Count)" })
 $(if (!$NuncaBorra -and $resultadoLimpieza.CarpetasEliminadas.Count -gt 0) { "🗑️ ELIMINADAS: $($resultadoLimpieza.CarpetasEliminadas -join ', ')" })
 $(if ($NuncaBorra) { "🛡️  MODO NUNCABORRA: Sin eliminación de obsoletos" })
@@ -817,7 +918,6 @@ Log completo adjunto.
 "@
 
     $emailEnviado = Send-BackupEmail `
-        -ConfigFile $configEmailFile `
         -Subject $subject `
         -Body $bodyOptimizado `
         -Attachment @($logResumen, $logDetalle)
@@ -826,7 +926,7 @@ Log completo adjunto.
         Write-Message "✅ Email enviado exitosamente" "Green"
     } else {
         Write-Message "❌ Error al enviar email (ver detalles arriba)" "Red"
-        Add-Content -Path $logResumen -Value "`n=== ERROR AL ENVIAR EMAIL ==="
+        Add-Content -Path $logResumen -Value "`n=== ERROR AL ENVIAR EMAIL ===" -Encoding UTF8
     }
     
 } else {
@@ -838,18 +938,18 @@ Log completo adjunto.
 Invoke-LimpiaLogs -logDir $logDir
 
 # Limpiar archivos temporales de perfiles
-Remove-ArchivosTemporales -ScriptDir $scriptDir
+Remove-ArchivosTemporales
 
 # ================================
 # 17. APAGAR EQUIPO
 # ================================
 if ($Apagar) {
     Write-Message "`n🔌 Preparando apagado del equipo..." "Yellow"
-    Add-Content -Path $logResumen -Value "`n=== APAGADO PROGRAMADO ==="
+    Add-Content -Path $logResumen -Value "`n=== APAGADO PROGRAMADO ===" -Encoding UTF8
     
     if (!$Debug) {
         Write-Message "🔌 Apagando equipo..." "Red"
-        Add-Content -Path $logResumen -Value "$(Get-Date -Format 'dd/MM/yyyy HH:mm:ss'): Apagado automático iniciado"
+        Add-Content -Path $logResumen -Value "$(Get-Date -Format 'dd/MM/yyyy HH:mm:ss'): Apagado automático iniciado" -Encoding UTF8
         shutdown /s /t 10 /c "Backup completado. Apagando equipo..."
     } else {
         Write-Host "`n⚠️  EL EQUIPO SE APAGARÁ EN 30 SEGUNDOS" -ForegroundColor Red -BackgroundColor Yellow
@@ -863,11 +963,11 @@ if ($Apagar) {
                 Start-Sleep -Seconds 1
             }
             Write-Host "🔌 Apagando equipo..." -ForegroundColor Red
-            Add-Content -Path $logResumen -Value "$(Get-Date -Format 'dd/MM/yyyy HH:mm:ss'): Apagado automático confirmado"
+            Add-Content -Path $logResumen -Value "$(Get-Date -Format 'dd/MM/yyyy HH:mm:ss'): Apagado automático confirmado" -Encoding UTF8
         } catch {
             shutdown /a
             Write-Host "`n❌ Apagado cancelado por el usuario" -ForegroundColor Green
-            Add-Content -Path $logResumen -Value "$(Get-Date -Format 'dd/MM/yyyy HH:mm:ss'): Apagado cancelado por usuario"
+            Add-Content -Path $logResumen -Value "$(Get-Date -Format 'dd/MM/yyyy HH:mm:ss'): Apagado cancelado por usuario" -Encoding UTF8
         }
     }
 } else {

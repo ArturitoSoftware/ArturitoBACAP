@@ -13,10 +13,6 @@ function Set-EmailConfig {
     y los guarda de forma encriptada en un archivo XML
     #>
     
-    param(
-        [string]$credentialsFile = (Join-Path $PSScriptRoot "configSMTP.xml")
-    )
-    
     Write-Host "`n=====================================================" -ForegroundColor Cyan
     Write-Host "=== 🚀 ArturitoBACAP - 🔐 CONFIGURACIÓN DE EMAIL ===" -ForegroundColor Cyan
     Write-Host "=====================================================" -ForegroundColor Cyan
@@ -74,25 +70,44 @@ function Set-EmailConfig {
     
     try {
         # Guardar configuración encriptada
-        $configEmail | Export-Clixml -Path $credentialsFile
+        $configEmail | Export-Clixml -Path $configEmailFile
         
         # Asegurar permisos del archivo (solo usuario actual)
         $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
-        $acl = Get-Acl $credentialsFile
-        $acl.SetAccessRuleProtection($true, $false)
-        $acl.Access | ForEach-Object { $acl.RemoveAccessRule($_) | Out-Null }
-        $regla = New-Object System.Security.AccessControl.FileSystemAccessRule(
-            $currentUser,
-            "FullControl",
-            "Allow"
-        )
-        $acl.SetAccessRule($regla)
-        Set-Acl -Path $credentialsFile -AclObject $acl
+        $permisosAplicados = $false
+        
+        try {
+            $acl = Get-Acl $configEmailFile
+            $acl.SetAccessRuleProtection($true, $false)
+            $acl.Access | ForEach-Object { $acl.RemoveAccessRule($_) | Out-Null }
+            $regla = New-Object System.Security.AccessControl.FileSystemAccessRule(
+                $currentUser,
+                "FullControl",
+                "Allow"
+            )
+            $acl.SetAccessRule($regla)
+            Set-Acl -Path $configEmailFile -AclObject $acl -ErrorAction Stop
+            $permisosAplicados = $true
+        } catch {
+            # Si falla por permisos, intentar método alternativo más simple
+            try {
+                icacls $configEmailFile /inheritance:r /grant:r "$($currentUser):F" | Out-Null
+                $permisosAplicados = $true
+            } catch {
+                # Si tampoco funciona, continuar sin permisos restringidos
+                Write-Host "   ⚠️  No se pudieron aplicar permisos restringidos (requiere permisos elevados)" -ForegroundColor Yellow
+            }
+        }
         
         Write-Host "`n✅ Configuración guardada exitosamente" -ForegroundColor Green
-        Write-Host "   📁 Archivo: $credentialsFile" -ForegroundColor Gray
-        Write-Host "   🔒 Permisos seguros aplicados" -ForegroundColor Gray
-        Write-Host "   👤 Solo accesible por: $currentUser`n" -ForegroundColor Gray
+        Write-Host "   📁 Archivo: $configEmailFile" -ForegroundColor Gray
+        if ($permisosAplicados) {
+            Write-Host "   🔒 Permisos seguros aplicados" -ForegroundColor Gray
+            Write-Host "   👤 Solo accesible por: $currentUser`n" -ForegroundColor Gray
+        } else {
+            Write-Host "   ⚠️  Archivo guardado con permisos estándar" -ForegroundColor Yellow
+            Write-Host "   💡 Para mayor seguridad, ejecuta como administrador`n" -ForegroundColor Gray
+        }
         
         # Ofrecer enviar email de prueba
         $enviarPrueba = Read-Host "¿Enviar email de prueba? (S/N) [S]"
@@ -100,7 +115,6 @@ function Set-EmailConfig {
             Write-Host "`n📤 Enviando email de prueba..." -ForegroundColor Yellow
             
             $resultado = Send-BackupEmail `
-                -ConfigFile $credentialsFile `
                 -Subject "✅ Prueba de configuración - ArturitoBacap" `
                 -Body "Este es un email de prueba.`n`nSi lo recibiste, la configuración es correcta.`n`n🚀 ArturitoBacap está listo para enviar reportes de backup." `
                 -EsPrueba
@@ -132,11 +146,7 @@ function Test-EmailConfig {
     Comprueba la existencia del archivo de configuración y sus permisos
     #>
     
-    param(
-        [string]$credentialsFile = (Join-Path $PSScriptRoot "configSMTP.xml")
-    )
-    
-    if (!(Test-Path $credentialsFile)) {
+    if (!(Test-Path $configEmailFile)) {
         return @{
             Valido = $false
             Error = "No existe configuración de email"
@@ -145,7 +155,7 @@ function Test-EmailConfig {
     }
     
     # Verificar permisos de seguridad
-    $acl = Get-Acl $credentialsFile
+    $acl = Get-Acl $configEmailFile
     $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
     
     $reglasOtrosUsuarios = $acl.Access | Where-Object { 
@@ -164,7 +174,7 @@ function Test-EmailConfig {
     
     # Intentar cargar configuración
     try {
-        $config = Import-Clixml -Path $credentialsFile
+        $config = Import-Clixml -Path $configEmailFile
         
         # Validar que tenga los campos necesarios
         $camposRequeridos = @('SmtpServer', 'Port', 'From', 'To', 'Usuario', 'Password')
@@ -200,9 +210,6 @@ function Send-BackupEmail {
     .DESCRIPTION
     Carga la configuración encriptada y envía el email con el reporte adjunto
     
-    .PARAMETER ConfigFile
-    Ruta al archivo de configuración encriptada
-    
     .PARAMETER Subject
     Asunto del email
     
@@ -217,7 +224,6 @@ function Send-BackupEmail {
     #>
     
     param(
-        [string]$ConfigFile = (Join-Path $PSScriptRoot "configSMTP.xml"),
         [Parameter(Mandatory=$true)]
         [string]$Subject,
         [Parameter(Mandatory=$true)]
@@ -227,7 +233,7 @@ function Send-BackupEmail {
     )
     
     # Validar configuración
-    $validacion = Test-EmailConfig -credentialsFile $ConfigFile
+    $validacion = Test-EmailConfig
     if (!$validacion.Valido) {
         Write-Host "❌ $($validacion.Error)" -ForegroundColor Red
         Write-Host "💡 $($validacion.Sugerencia)" -ForegroundColor Yellow

@@ -1,4 +1,14 @@
-﻿function Invoke-CierraTodo {
+﻿# ================================
+# Función para cerrar aplicaciones abiertas
+# FuncCierraTodo.ps1
+# Ubicación: Func\FuncCierraTodo.ps1
+# ================================
+# Cierra todas las aplicaciones en ventana antes del backup
+# Excluye procesos críticos del sistema y aplicaciones protegidas
+
+function Invoke-CierraTodo {
+    # No necesita parámetros - usa Write-Message del script principal via dot sourcing
+    
     Write-Message "🔒 Cerrando todas las aplicaciones en ventana..." "Yellow"
     
     # Lista para acumular los resultados

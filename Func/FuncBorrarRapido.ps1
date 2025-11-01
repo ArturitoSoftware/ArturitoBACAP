@@ -1,4 +1,12 @@
-﻿function Borrar-Rapido {
+﻿# ================================
+# Función de eliminación rápida de carpetas/archivos
+# FuncBorrarRapido.ps1
+# Ubicación: Func\FuncBorrarRapido.ps1
+# ================================
+# Función optimizada para eliminar carpetas grandes usando Robocopy
+# y procesamiento paralelo con Jobs
+
+function Borrar-Rapido {
     [CmdletBinding(SupportsShouldProcess=$true)]
     param(
         [Parameter(Position=0, Mandatory=$true, ValueFromPipeline=$true, ValueFromPipelineByPropertyName=$true)]
@@ -13,8 +21,8 @@
     )
 
     begin {
-        # Carpeta vacía para Robocopy
-        $tmpEmpty = Join-Path $env:TEMP "CarpetaVacia"
+        # Carpeta vacía para Robocopy (usa $tempDir del script principal)
+        $tmpEmpty = Join-Path $tempDir "CarpetaVacia"
         if (-not (Test-Path $tmpEmpty)) { New-Item -Path $tmpEmpty -ItemType Directory | Out-Null }
 
         # Determinar cantidad máxima de Jobs paralelos según CPU

@@ -1,38 +1,54 @@
+# ====================================
+# ArturitoBACAP - .gitignore
+# ====================================
+
 # ----------------------------
 # Archivos de configuración con datos reales
 # ----------------------------
-Origen.cfg
-Destino.cfg
-configSMTP.xml
-MapeosUNC.json
+# Estos archivos contienen rutas y credenciales específicas del usuario
+Conf/Origen.cfg
+Conf/Destino.cfg
+Conf/Omitir.cfg
+Conf/configSMTP.xml
+Conf/MapeosUNC.json
 
 # ----------------------------
-# Logs
+# Logs (mantener carpeta, ignorar contenido)
 # ----------------------------
-Logs/
+Logs/*
+!Logs/.gitkeep
 *.log
 
 # ----------------------------
-# Carpetas y archivos superados
+# Archivos temporales (mantener carpeta, ignorar contenido)
 # ----------------------------
-Superado/
+Temp/*
+!Temp/.gitkeep
+*.tmp
+*.cfg.tmp
 
 # ----------------------------
-# Backups
+# Carpetas de destino de backups
 # ----------------------------
 BCKP/
 
 # ----------------------------
-# Archivos temporales y editores
+# Carpetas y archivos superados (legacy)
 # ----------------------------
-*.tmp
+Superado/
+
+# ----------------------------
+# Archivos de respaldo y editores
+# ----------------------------
 *.bak
 *.swp
 *.ps1~
+*~
 
-# Carpetas de editores
+# Carpetas de editores e IDEs
 .vscode/
 .idea/
+.vs/
 
 # Archivos de Visual Studio
 *.suo
@@ -41,15 +57,22 @@ BCKP/
 *.sln.docstates
 
 # ----------------------------
-# Windows
+# Sistema operativo Windows
 # ----------------------------
 Thumbs.db
 desktop.ini
+$RECYCLE.BIN/
 
 # ----------------------------
-# Binarios y compilación
+# Binarios y compilación (si aplica)
 # ----------------------------
 *.exe
 *.dll
 *.pdb
 *.obj
+
+# ----------------------------
+# Archivos de depuración/testing
+# ----------------------------
+test_*.ps1
+debug_*.log
